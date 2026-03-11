@@ -1,6 +1,11 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
+
 import 'package:cloud_functions/cloud_functions.dart';
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key});
@@ -9,80 +14,231 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen>
+    with SingleTickerProviderStateMixin {
   static const bgColor = Color(0xFFFDFBF7);
   static const primaryColor = Color(0xFF0F172A);
   static const accentColor = Color(0xFFE2B736);
-  static const bubbleColor = Color(0xFFF5F2EB);
-  static const aiBubbleColor = Color(0xFFF3EFFB);
 
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final stt.SpeechToText _speech = stt.SpeechToText();
+  final FlutterTts _tts = FlutterTts();
 
   final List<ChatMessage> _messages = [];
-  final String _conversationId =
-  DateTime.now().millisecondsSinceEpoch.toString();
+  final String _conversationId = DateTime.now().millisecondsSinceEpoch
+      .toString();
+
+  late final AnimationController _voiceBarsController;
 
   bool _isSending = false;
+  bool _speechReady = false;
+  bool _voiceModeEnabled = false;
+  bool _isListening = false;
+  bool _isAssistantSpeaking = false;
+  bool _isVoiceSubmitting = false;
+  String _liveTranscript = '';
 
-  // @override
-  // void initState() {
-  //   super.initState();
-  //
-  //   // Optional demo messages so initial UI looks like the design screenshot.
-  //   _messages.addAll([
-  //     ChatMessage(
-  //       role: MessageRole.family,
-  //       senderName: 'Mom',
-  //       text: 'Did anyone pick up the ingredients for the Sunday roast yet? 🧺',
-  //     ),
-  //     ChatMessage(
-  //       role: MessageRole.user,
-  //       senderName: 'Me',
-  //       text:
-  //       "I'm at the market now! I'll grab everything. Let's make sure it's on the calendar.",
-  //     ),
-  //     ChatMessage(
-  //       role: MessageRole.assistant,
-  //       text: "I can help with that! I've detected a new event from your conversation.",
-  //       draftEvents: [
-  //         DraftEvent(
-  //           title: 'Family Sunday Roast',
-  //           dateLabel: 'Sunday, Oct 22',
-  //           timeLabel: '6:00 PM',
-  //           location: 'Home (Kitchen)',
-  //           statusLabel: 'TASK ADDED TO CALENDAR',
-  //         ),
-  //       ],
-  //     ),
-  //     ChatMessage(
-  //       role: MessageRole.family,
-  //       senderName: 'Lily',
-  //       text: "Perfect! I'll help with the dessert. 🍰",
-  //     ),
-  //   ]);
-  //
-  //   WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-  // }
+  @override
+  void initState() {
+    super.initState();
+    _voiceBarsController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    );
+    _initVoiceTools();
+  }
+
+  Future<void> _initVoiceTools() async {
+    await _initSpeech();
+    await _initTts();
+  }
+
+  Future<void> _initSpeech() async {
+    try {
+      final ready = await _speech.initialize(
+        onStatus: _handleSpeechStatus,
+        onError: _handleSpeechError,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _speechReady = ready;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _speechReady = false;
+      });
+    }
+  }
+
+  void _handleSpeechError(dynamic error) {
+    if (!mounted) return;
+
+    final errorMessage = '${error.errorMsg ?? error}'.toLowerCase();
+    final isTimeout = errorMessage.contains('error_speech_timeout');
+    final isNoMatch = errorMessage.contains('error_no_match');
+    final shouldRetrySilently =
+        _voiceModeEnabled && !_isSending && (isTimeout || isNoMatch);
+
+    setState(() {
+      _isListening = false;
+    });
+    _stopVoiceBarsIfIdle();
+
+    if (shouldRetrySilently) {
+      unawaited(_restartListeningSilently());
+      return;
+    }
+
+    if (error.permanent != true) {
+      _showError('Voice recognition failed: ${error.errorMsg ?? error}');
+    }
+  }
+
+  Future<void> _restartListeningSilently() async {
+    if (!_voiceModeEnabled || _isSending || _isListening) return;
+
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (!mounted || !_voiceModeEnabled || _isSending || _isListening) return;
+
+    await _startListening();
+  }
+
+  Future<void> _configurePreferredVoice() async {
+    try {
+      final voices = await _tts.getVoices;
+      if (voices is! List) return;
+
+      Map<String, String>? preferredVoice;
+      var preferredScore = -1;
+
+      for (final rawVoice in voices.whereType<Map>()) {
+        final voice = rawVoice.map(
+          (key, value) => MapEntry('$key', '${value ?? ''}'),
+        );
+        final name = (voice['name'] ?? '').toLowerCase();
+        final locale = (voice['locale'] ?? voice['language'] ?? '')
+            .toLowerCase();
+        final identifier = (voice['identifier'] ?? '').toLowerCase();
+        final quality = (voice['quality'] ?? '').toLowerCase();
+        final gender = (voice['gender'] ?? '').toLowerCase();
+
+        if (!locale.startsWith('en')) continue;
+
+        var score = 0;
+        if (locale.contains('en-us')) score += 6;
+        if (locale.contains('en-gb')) score += 5;
+        if (locale.contains('en-au')) score += 4;
+        if (quality.contains('premium') ||
+            quality.contains('enhanced') ||
+            quality.contains('high')) {
+          score += 6;
+        }
+        if (name.contains('neural') ||
+            name.contains('enhanced') ||
+            name.contains('premium') ||
+            identifier.contains('enhanced') ||
+            identifier.contains('premium')) {
+          score += 5;
+        }
+        if (gender.contains('female')) score += 2;
+        if (name.contains('samantha') ||
+            name.contains('ava') ||
+            name.contains('allison') ||
+            name.contains('karen') ||
+            name.contains('moira') ||
+            name.contains('siri')) {
+          score += 3;
+        }
+
+        if (score > preferredScore) {
+          preferredScore = score;
+          preferredVoice = voice;
+        }
+      }
+
+      if (preferredVoice == null) return;
+      await _tts.setVoice(preferredVoice);
+    } catch (_) {
+      // Fall back to the platform default voice when a custom one is unavailable.
+    }
+  }
+
+  Future<void> _initTts() async {
+    if (Platform.isIOS || Platform.isMacOS) {
+      await _tts.setSharedInstance(true);
+      await _tts.setIosAudioCategory(
+        IosTextToSpeechAudioCategory.playback,
+        <IosTextToSpeechAudioCategoryOptions>[
+          IosTextToSpeechAudioCategoryOptions
+              .interruptSpokenAudioAndMixWithOthers,
+          IosTextToSpeechAudioCategoryOptions.duckOthers,
+          IosTextToSpeechAudioCategoryOptions.defaultToSpeaker,
+        ],
+        IosTextToSpeechAudioMode.spokenAudio,
+      );
+    }
+
+    await _tts.setLanguage('en-US');
+    await _tts.setSpeechRate(0.64);
+    await _tts.setVolume(1.0);
+    await _tts.setPitch(1.02);
+    await _tts.awaitSpeakCompletion(true);
+    await _configurePreferredVoice();
+
+    _tts.setStartHandler(() {
+      if (!mounted) return;
+      setState(() {
+        _isAssistantSpeaking = true;
+      });
+      _startVoiceBars();
+      if (_voiceModeEnabled && !_isListening) {
+        unawaited(_startListening(interruptAssistant: false, passive: true));
+      }
+    });
+
+    void finishSpeaking() {
+      if (!mounted) return;
+      setState(() {
+        _isAssistantSpeaking = false;
+      });
+      _stopVoiceBarsIfIdle();
+      if (_voiceModeEnabled && !_isListening) {
+        unawaited(_restartListeningSilently());
+      }
+    }
+
+    _tts.setCompletionHandler(finishSpeaking);
+    _tts.setCancelHandler(finishSpeaking);
+    _tts.setErrorHandler((_) => finishSpeaking());
+  }
 
   @override
   void dispose() {
+    _voiceBarsController.dispose();
+    _speech.cancel();
+    _tts.stop();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
   }
 
   Future<void> _send() async {
-    debugPrint('[Chat] send tapped');
-    final text = _controller.text.trim();
-    debugPrint('[Chat] text="$text", isSending=$_isSending');
+    await _submitMessage(_controller.text.trim(), speakReply: false);
+  }
 
+  Future<void> _stopAssistantSpeech() async {
+    if (!_isAssistantSpeaking) return;
+    await _tts.stop();
+  }
+
+  Future<void> _submitMessage(String text, {required bool speakReply}) async {
     if (text.isEmpty || _isSending) {
       _showError(text.isEmpty ? 'Message is empty' : 'Already sending...');
       return;
     }
-
-    debugPrint('[Chat] projectId=${Firebase.app().options.projectId}');
 
     setState(() {
       _isSending = true;
@@ -103,13 +259,15 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       );
       _controller.clear();
+      _liveTranscript = '';
     });
 
     _scrollToBottom();
 
     try {
-      final functions =
-      FirebaseFunctions.instanceFor(region: 'australia-southeast1');
+      final functions = FirebaseFunctions.instanceFor(
+        region: 'australia-southeast1',
+      );
       final callable = functions.httpsCallable('chatWithAI');
 
       final result = await callable.call(<String, dynamic>{
@@ -121,24 +279,33 @@ class _ChatScreenState extends State<ChatScreen> {
       final reply = (data['reply'] as String?)?.trim();
       final draftEventsData = data['draftEvents'] as List<dynamic>?;
 
-      final draftEvents = draftEventsData
-          ?.whereType<Map>()
-          .map((event) => DraftEvent.fromMap(Map<String, dynamic>.from(event)))
-          .toList() ??
+      final draftEvents =
+          draftEventsData
+              ?.whereType<Map>()
+              .map(
+                (event) => DraftEvent.fromMap(Map<String, dynamic>.from(event)),
+              )
+              .toList() ??
           [];
 
+      final assistantMessage = ChatMessage(
+        role: MessageRole.assistant,
+        text: reply?.isNotEmpty == true
+            ? reply!
+            : 'Sorry, I could not generate a response.',
+        draftEvents: draftEvents,
+        createdAt: DateTime.now(),
+      );
+
       setState(() {
-        _replaceTyping(
-          ChatMessage(
-            role: MessageRole.assistant,
-            text: reply?.isNotEmpty == true
-                ? reply!
-                : 'Sorry, I could not generate a response.',
-            draftEvents: draftEvents,
-            createdAt: DateTime.now(),
-          ),
-        );
+        _replaceTyping(assistantMessage);
+        _isSending = false;
       });
+      _scrollToBottom();
+
+      if (speakReply) {
+        await _speakAssistantReply(assistantMessage.text);
+      }
     } on FirebaseFunctionsException catch (e) {
       _showError(_mapFunctionError(e));
       setState(() {
@@ -162,10 +329,177 @@ class _ChatScreenState extends State<ChatScreen> {
         );
       });
     } finally {
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+        });
+        _scrollToBottom();
+
+        if (speakReply &&
+            _voiceModeEnabled &&
+            !_isAssistantSpeaking &&
+            !_isListening) {
+          unawaited(_restartListeningSilently());
+        }
+      }
+    }
+  }
+
+  Future<void> _speakAssistantReply(String text) async {
+    if (text.trim().isEmpty) return;
+    await _tts.stop();
+    await _tts.speak(text);
+  }
+
+  Future<void> _toggleVoiceConversation() async {
+    if (_voiceModeEnabled) {
+      await _disableVoiceConversation();
+      return;
+    }
+
+    if (_isAssistantSpeaking) {
+      await _stopAssistantSpeech();
+      return;
+    }
+
+    if (!_speechReady) {
+      await _initSpeech();
+    }
+
+    if (!_speechReady) {
+      _showError('Voice input is not available on this device.');
+      return;
+    }
+
+    if (_isAssistantSpeaking) {
+      await _tts.stop();
+    }
+
+    setState(() {
+      _voiceModeEnabled = true;
+    });
+
+    await _startListening();
+  }
+
+  Future<void> _disableVoiceConversation() async {
+    setState(() {
+      _voiceModeEnabled = false;
+      _isListening = false;
+      _isVoiceSubmitting = false;
+      _liveTranscript = '';
+    });
+    await _speech.stop();
+    await _tts.stop();
+    _stopVoiceBarsIfIdle();
+  }
+
+  Future<void> _startListening({
+    bool interruptAssistant = true,
+    bool passive = false,
+  }) async {
+    if (!_speechReady || _isListening || _isSending) return;
+
+    if (interruptAssistant && _isAssistantSpeaking) {
+      await _stopAssistantSpeech();
+    }
+
+    setState(() {
+      _isListening = true;
+      if (!passive) {
+        _isVoiceSubmitting = false;
+        _liveTranscript = '';
+      }
+    });
+    _startVoiceBars();
+
+    await _speech.listen(
+      pauseFor: passive
+          ? const Duration(seconds: 10)
+          : const Duration(seconds: 3),
+      listenOptions: stt.SpeechListenOptions(
+        listenMode: passive
+            ? stt.ListenMode.dictation
+            : stt.ListenMode.confirmation,
+        partialResults: true,
+      ),
+      onSoundLevelChange: (level) {
+        if (passive && _isAssistantSpeaking && level > 2.5) {
+          unawaited(_stopAssistantSpeech());
+        }
+      },
+      onResult: (result) {
+        final words = result.recognizedWords.trim();
+        if (!mounted) return;
+        setState(() {
+          if (words.isNotEmpty) {
+            _liveTranscript = words;
+            _controller.text = words;
+            _controller.selection = TextSelection.collapsed(
+              offset: _controller.text.length,
+            );
+          }
+        });
+
+        if (passive && words.isNotEmpty && _isAssistantSpeaking) {
+          unawaited(_stopAssistantSpeech());
+          setState(() {});
+        }
+
+        if (result.finalResult) {
+          unawaited(_finalizeVoiceInput());
+        }
+      },
+    );
+  }
+
+  Future<void> _finalizeVoiceInput() async {
+    if (_isVoiceSubmitting) return;
+
+    final text = _liveTranscript.trim().isNotEmpty
+        ? _liveTranscript.trim()
+        : _controller.text.trim();
+
+    if (text.isEmpty) {
+      if (_voiceModeEnabled && !_isListening && !_isSending) {
+        await _startListening();
+      }
+      return;
+    }
+
+    _isVoiceSubmitting = true;
+    await _speech.stop();
+
+    if (!mounted) return;
+    setState(() {
+      _isListening = false;
+    });
+
+    _stopVoiceBarsIfIdle();
+    await _submitMessage(text, speakReply: true);
+    _isVoiceSubmitting = false;
+  }
+
+  void _handleSpeechStatus(String status) {
+    if (!mounted) return;
+
+    if (status == 'listening') {
       setState(() {
-        _isSending = false;
+        _isListening = true;
       });
-      _scrollToBottom();
+      _startVoiceBars();
+      return;
+    }
+
+    if (status == 'done' || status == 'notListening') {
+      setState(() {
+        _isListening = false;
+      });
+      _stopVoiceBarsIfIdle();
+
+      if (_voiceModeEnabled && !_isVoiceSubmitting && !_isSending) {
+        unawaited(_finalizeVoiceInput());
+      }
     }
   }
 
@@ -215,6 +549,18 @@ class _ChatScreenState extends State<ChatScreen> {
     });
   }
 
+  void _startVoiceBars() {
+    if (!_voiceBarsController.isAnimating) {
+      _voiceBarsController.repeat();
+    }
+  }
+
+  void _stopVoiceBarsIfIdle() {
+    if (!_isListening && !_isAssistantSpeaking) {
+      _voiceBarsController.stop();
+    }
+  }
+
   String _formatTime(DateTime? dt) {
     if (dt == null) return '';
     final hour = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
@@ -225,6 +571,8 @@ class _ChatScreenState extends State<ChatScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final showVoiceBars = _voiceModeEnabled || _isAssistantSpeaking;
+
     return Scaffold(
       backgroundColor: bgColor,
       appBar: _buildAppBar(context),
@@ -246,7 +594,8 @@ class _ChatScreenState extends State<ChatScreen> {
                 final message = _messages[index - 1];
                 final previous = index > 1 ? _messages[index - 2] : null;
 
-                final showMeta = previous == null ||
+                final showMeta =
+                    previous == null ||
                     previous.role != message.role ||
                     previous.senderName != message.senderName;
 
@@ -258,7 +607,7 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
-          _buildBottomInput(),
+          _buildBottomInput(showVoiceBars),
         ],
       ),
     );
@@ -271,9 +620,7 @@ class _ChatScreenState extends State<ChatScreen> {
         decoration: BoxDecoration(
           color: bgColor.withOpacity(0.95),
           border: Border(
-            bottom: BorderSide(
-              color: accentColor.withOpacity(0.10),
-            ),
+            bottom: BorderSide(color: accentColor.withOpacity(0.10)),
           ),
         ),
         child: SafeArea(
@@ -307,15 +654,6 @@ class _ChatScreenState extends State<ChatScreen> {
                         color: primaryColor,
                       ),
                     ),
-                    Text(
-                      'The Henderson Family',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: accentColor,
-                        letterSpacing: 0.6,
-                      ),
-                    ),
                   ],
                 ),
                 const Spacer(),
@@ -325,14 +663,8 @@ class _ChatScreenState extends State<ChatScreen> {
                   child: Stack(
                     clipBehavior: Clip.none,
                     children: [
-                      Positioned(
-                        left: 0,
-                        child: _buildHeaderAvatar(),
-                      ),
-                      Positioned(
-                        left: 24,
-                        child: _buildHeaderAvatar(),
-                      ),
+                      Positioned(left: 0, child: _buildHeaderAvatar()),
+                      Positioned(left: 24, child: _buildHeaderAvatar()),
                       Positioned(
                         left: 48,
                         child: Container(
@@ -370,114 +702,163 @@ class _ChatScreenState extends State<ChatScreen> {
     return const CircleAvatar(
       radius: 16,
       backgroundColor: Color(0xFFE9EEF5),
-      child: Icon(
-        Icons.person,
-        size: 18,
-        color: Color(0xFF94A3B8),
-      ),
+      child: Icon(Icons.person, size: 18, color: Color(0xFF94A3B8)),
     );
   }
 
-  Widget _buildBottomInput() {
+  Widget _buildBottomInput(bool showVoiceBars) {
+    final statusText = _isListening
+        ? 'Listening... speak to the AI'
+        : _isAssistantSpeaking
+        ? 'AI is speaking...'
+        : _voiceModeEnabled
+        ? 'Voice mode is on. Tap mic to end.'
+        : 'Tap the mic to start a voice chat';
+
     return SafeArea(
       top: false,
       child: Container(
         padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
         decoration: const BoxDecoration(
           color: bgColor,
-          border: Border(
-            top: BorderSide(color: Color(0xFFE2E8F0)),
-          ),
+          border: Border(top: BorderSide(color: Color(0xFFE2E8F0))),
         ),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            border: Border.all(color: const Color(0xFFF1F5F9)),
-            borderRadius: BorderRadius.circular(999),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.08),
-                blurRadius: 15,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                margin: const EdgeInsets.all(9),
-                alignment: Alignment.center,
-                child: const Icon(
-                  Icons.add,
-                  size: 16,
-                  color: Color(0xFF6B7280),
-                ),
-              ),
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  minLines: 1,
-                  maxLines: 4,
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _isSending ? null : _send(),
-                  decoration: const InputDecoration(
-                    hintText: 'Message your family...',
-                    hintStyle: TextStyle(
-                      color: Color(0xFF6B7280),
-                      fontSize: 14,
-                    ),
-                    border: InputBorder.none,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFF6B7280),
-                  ),
-                ),
-              ),
-              GestureDetector(
-                onTap: _isSending ? null : _send,
-                child: Container(
-                  width: 40,
-                  height: 40,
-                  margin: const EdgeInsets.all(9),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF5F2EB),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: _isSending
-                        ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: primaryColor,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 220),
+              child: showVoiceBars
+                  ? Padding(
+                      key: ValueKey(statusText),
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: _VoiceStatusBanner(
+                        label: statusText,
+                        accentColor: accentColor,
+                        animation: _voiceBarsController,
+                        isAssistant: _isAssistantSpeaking,
                       ),
                     )
-                        : const Icon(
-                      Icons.send,
-                      size: 18,
-                      color: primaryColor,
+                  : const SizedBox.shrink(),
+            ),
+            Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: Border.all(color: const Color(0xFFF1F5F9)),
+                borderRadius: BorderRadius.circular(999),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 15,
+                    offset: const Offset(0, 10),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    margin: const EdgeInsets.all(9),
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.add,
+                      size: 16,
+                      color: Color(0xFF6B7280),
                     ),
                   ),
-                ),
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      minLines: 1,
+                      maxLines: 4,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _isSending ? null : _send(),
+                      decoration: InputDecoration(
+                        hintText: _isListening
+                            ? 'Listening to your voice...'
+                            : 'Message your family...',
+                        hintStyle: const TextStyle(
+                          color: Color(0xFF6B7280),
+                          fontSize: 14,
+                        ),
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF6B7280),
+                      ),
+                    ),
+                  ),
+                  GestureDetector(
+                    onTap: (_isSending && !_isAssistantSpeaking)
+                        ? null
+                        : _toggleVoiceConversation,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      width: 40,
+                      height: 40,
+                      margin: const EdgeInsets.symmetric(vertical: 9),
+                      decoration: BoxDecoration(
+                        color: _voiceModeEnabled
+                            ? accentColor
+                            : const Color(0xFFF5F2EB),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        _voiceModeEnabled ? Icons.mic : Icons.mic_none,
+                        size: 18,
+                        color: _voiceModeEnabled
+                            ? primaryColor
+                            : const Color(0xFF6B7280),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _isSending ? null : _send,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      margin: const EdgeInsets.only(
+                        top: 9,
+                        right: 9,
+                        bottom: 9,
+                      ),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFF5F2EB),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: _isSending
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: primaryColor,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.send,
+                                size: 18,
+                                color: primaryColor,
+                              ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-enum MessageRole {
-  user,
-  assistant,
-  family,
-}
+enum MessageRole { user, assistant, family }
 
 class ChatMessage {
   ChatMessage({
@@ -540,7 +921,7 @@ class DraftEvent {
     if ((dateLabel ?? '').isNotEmpty || (timeLabel ?? '').isNotEmpty) {
       final left = dateLabel ?? '';
       final right = timeLabel ?? '';
-      return [left, right].where((e) => e.isNotEmpty).join(' • ');
+      return [left, right].where((e) => e.isNotEmpty).join(' | ');
     }
 
     if (startISO != null || endISO != null) {
@@ -557,8 +938,9 @@ class DraftEvent {
   String get displayLocation =>
       (location ?? '').trim().isNotEmpty ? location! : 'Home';
 
-  String get displayStatus =>
-      (statusLabel ?? '').trim().isNotEmpty ? statusLabel! : 'TASK ADDED TO CALENDAR';
+  String get displayStatus => (statusLabel ?? '').trim().isNotEmpty
+      ? statusLabel!
+      : 'TASK ADDED TO CALENDAR';
 }
 
 class _DateLabel extends StatelessWidget {
@@ -631,7 +1013,7 @@ class _StyledMessageBubble extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(left: 4, bottom: 4),
                     child: Text(
-                      '${message.senderName ?? 'Family'}${timeText.isNotEmpty ? ' • $timeText' : ''}',
+                      '${message.senderName ?? 'Family'}${timeText.isNotEmpty ? ' | $timeText' : ''}',
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w500,
@@ -689,7 +1071,7 @@ class _StyledMessageBubble extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(right: 4, bottom: 4),
                     child: Text(
-                      '${message.senderName ?? 'Me'}${timeText.isNotEmpty ? ' • $timeText' : ''}',
+                      '${message.senderName ?? 'Me'}${timeText.isNotEmpty ? ' | $timeText' : ''}',
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w500,
@@ -799,16 +1181,96 @@ class _StyledMessageBubble extends StatelessWidget {
                 ),
                 if (message.draftEvents.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  ...message.draftEvents.map((event) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: _EventDraftCard(event: event),
-                  )),
+                  ...message.draftEvents.map(
+                    (event) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: _EventDraftCard(event: event),
+                    ),
+                  ),
                 ],
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _VoiceStatusBanner extends StatelessWidget {
+  const _VoiceStatusBanner({
+    required this.label,
+    required this.accentColor,
+    required this.animation,
+    required this.isAssistant,
+  });
+
+  final String label;
+  final Color accentColor;
+  final Animation<double> animation;
+  final bool isAssistant;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: accentColor.withOpacity(0.18)),
+      ),
+      child: Row(
+        children: [
+          _VoiceBars(
+            animation: animation,
+            color: isAssistant ? const Color(0xFF7C3AED) : accentColor,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF334155),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _VoiceBars extends StatelessWidget {
+  const _VoiceBars({required this.animation, required this.color});
+
+  final Animation<double> animation;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, child) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: List.generate(6, (index) {
+            final phase = animation.value * math.pi * 2 + index * 0.65;
+            final height = 8 + (math.sin(phase).abs() * 18);
+            return Container(
+              width: 4,
+              height: height,
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              decoration: BoxDecoration(
+                color: color,
+                borderRadius: BorderRadius.circular(999),
+              ),
+            );
+          }),
+        );
+      },
     );
   }
 }
@@ -880,25 +1342,15 @@ class _EventDraftCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Container(
-            height: 1,
-            color: const Color(0xFFF8FAFC),
-          ),
+          Container(height: 1, color: const Color(0xFFF8FAFC)),
           const SizedBox(height: 12),
           Row(
             children: [
-              const Icon(
-                Icons.location_on,
-                size: 12,
-                color: Color(0xFF64748B),
-              ),
+              const Icon(Icons.location_on, size: 12, color: Color(0xFF64748B)),
               const SizedBox(width: 8),
               Text(
                 event.displayLocation,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF64748B),
-                ),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
             ],
           ),
@@ -932,11 +1384,7 @@ class _PersonAvatar extends StatelessWidget {
     return const CircleAvatar(
       radius: 18,
       backgroundColor: Color(0xFFE9EEF5),
-      child: Icon(
-        Icons.person,
-        size: 20,
-        color: Color(0xFF94A3B8),
-      ),
+      child: Icon(Icons.person, size: 20, color: Color(0xFF94A3B8)),
     );
   }
 }
