@@ -1,4 +1,8 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
+import 'calendar_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -19,13 +23,104 @@ class _LoginScreenState extends State<LoginScreen> {
 
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
+
   bool obscurePassword = true;
+  bool _isLoading = false;
 
   @override
   void dispose() {
     emailController.dispose();
     passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _signIn() async {
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
+
+    if (email.isEmpty) {
+      _showMessage('Please enter your email.');
+      return;
+    }
+
+    if (password.isEmpty) {
+      _showMessage('Please enter your password.');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final userCredential =
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      final user = userCredential.user;
+
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'user-null',
+          message: 'Login failed. Please try again.',
+        );
+      }
+
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'lastLoginAt': Timestamp.now(),
+        'updatedAt': Timestamp.now(),
+      }, SetOptions(merge: true));
+
+      if (!mounted) return;
+
+      _showMessage('Login successful.');
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const CalendarScreen(),
+        ),
+      );
+    } on FirebaseAuthException catch (e) {
+      _showMessage(_getFirebaseAuthErrorMessage(e));
+    } catch (e) {
+      _showMessage('Login failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  String _getFirebaseAuthErrorMessage(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'invalid-email':
+        return 'The email address is invalid.';
+      case 'invalid-credential':
+        return 'Incorrect email or password.';
+      case 'user-not-found':
+        return 'No account found for this email.';
+      case 'wrong-password':
+        return 'Incorrect password.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      case 'network-request-failed':
+        return 'Network error. Please check your connection.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please try again later.';
+      default:
+        return e.message ?? 'Login failed. Please try again.';
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   @override
@@ -36,7 +131,8 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SingleChildScrollView(
           child: Center(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 90.5),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 90.5),
               child: Container(
                 constraints: const BoxConstraints(maxWidth: 440),
                 child: Column(
@@ -157,9 +253,11 @@ class _LoginScreenState extends State<LoginScreen> {
             border: Border.all(color: borderColor, width: 1),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 21, vertical: 17.5),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 21, vertical: 17.5),
             child: TextField(
               controller: emailController,
+              keyboardType: TextInputType.emailAddress,
               decoration: InputDecoration(
                 hintText: 'hello@family.com',
                 hintStyle: TextStyle(
@@ -202,7 +300,8 @@ class _LoginScreenState extends State<LoginScreen> {
             border: Border.all(color: borderColor, width: 1),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 21, vertical: 17.5),
+            padding:
+            const EdgeInsets.symmetric(horizontal: 21, vertical: 17.5),
             child: TextField(
               controller: passwordController,
               obscureText: obscurePassword,
@@ -252,15 +351,23 @@ class _LoginScreenState extends State<LoginScreen> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () {
-            // Handle sign in
-            print('Email: ${emailController.text}');
-            print('Password: ${passwordController.text}');
-          },
+          onTap: _isLoading ? null : _signIn,
           borderRadius: BorderRadius.circular(24),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 16),
-            child: const Text(
+            child: _isLoading
+                ? const Center(
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor:
+                  AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+            )
+                : const Text(
               'Sign In',
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -314,7 +421,9 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: GestureDetector(
                     onTap: () {
                       Navigator.of(context).push(
-                        MaterialPageRoute(builder: (_) => const RegisterScreen()),
+                        MaterialPageRoute(
+                          builder: (_) => const RegisterScreen(),
+                        ),
                       );
                     },
                     child: const Text(
