@@ -1,3 +1,450 @@
+// import 'package:cloud_firestore/cloud_firestore.dart';
+// import 'package:firebase_auth/firebase_auth.dart';
+// import 'package:flutter/material.dart';
+//
+// import 'calendar_screen.dart';
+// import 'register_screen.dart';
+//
+// class LoginScreen extends StatefulWidget {
+//   const LoginScreen({Key? key}) : super(key: key);
+//
+//   @override
+//   State<LoginScreen> createState() => _LoginScreenState();
+// }
+//
+// class _LoginScreenState extends State<LoginScreen> {
+//   static const bgColor = Color(0xFFFFFDF5);
+//   static const primaryColor = Color(0xFF0F172A);
+//   static const accentColor = Color(0xFFFAC638);
+//   static const secondaryAccent = Color(0xFFF59E0B);
+//   static const labelColor = Color(0xFF334155);
+//   static const hintColor = Color(0xFF7E7664);
+//   static const borderColor = Color(0xFFE2E8F0);
+//
+//   final emailController = TextEditingController();
+//   final passwordController = TextEditingController();
+//
+//   bool obscurePassword = true;
+//   bool _isLoading = false;
+//
+//   @override
+//   void dispose() {
+//     emailController.dispose();
+//     passwordController.dispose();
+//     super.dispose();
+//   }
+//
+//   Future<void> _signIn() async {
+//     final email = emailController.text.trim();
+//     final password = passwordController.text.trim();
+//
+//     if (email.isEmpty) {
+//       _showMessage('Please enter your email.');
+//       return;
+//     }
+//
+//     if (password.isEmpty) {
+//       _showMessage('Please enter your password.');
+//       return;
+//     }
+//
+//     setState(() {
+//       _isLoading = true;
+//     });
+//
+//     try {
+//       final userCredential =
+//       await FirebaseAuth.instance.signInWithEmailAndPassword(
+//         email: email,
+//         password: password,
+//       );
+//
+//       final user = userCredential.user;
+//
+//       if (user == null) {
+//         throw FirebaseAuthException(
+//           code: 'user-null',
+//           message: 'Login failed. Please try again.',
+//         );
+//       }
+//
+//       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+//         'lastLoginAt': Timestamp.now(),
+//         'updatedAt': Timestamp.now(),
+//       }, SetOptions(merge: true));
+//
+//       if (!mounted) return;
+//
+//       _showMessage('Login successful.');
+//
+//       Navigator.pushReplacement(
+//         context,
+//         MaterialPageRoute(
+//           builder: (_) => const CalendarScreen(),
+//         ),
+//       );
+//     } on FirebaseAuthException catch (e) {
+//       _showMessage(_getFirebaseAuthErrorMessage(e));
+//     } catch (e) {
+//       _showMessage('Login failed: $e');
+//     } finally {
+//       if (mounted) {
+//         setState(() {
+//           _isLoading = false;
+//         });
+//       }
+//     }
+//   }
+//
+//   String _getFirebaseAuthErrorMessage(FirebaseAuthException e) {
+//     switch (e.code) {
+//       case 'invalid-email':
+//         return 'The email address is invalid.';
+//       case 'invalid-credential':
+//         return 'Incorrect email or password.';
+//       case 'user-not-found':
+//         return 'No account found for this email.';
+//       case 'wrong-password':
+//         return 'Incorrect password.';
+//       case 'user-disabled':
+//         return 'This account has been disabled.';
+//       case 'network-request-failed':
+//         return 'Network error. Please check your connection.';
+//       case 'too-many-requests':
+//         return 'Too many attempts. Please try again later.';
+//       default:
+//         return e.message ?? 'Login failed. Please try again.';
+//     }
+//   }
+//
+//   void _showMessage(String message) {
+//     ScaffoldMessenger.of(context).showSnackBar(
+//       SnackBar(content: Text(message)),
+//     );
+//   }
+//
+//   @override
+//   Widget build(BuildContext context) {
+//     return Scaffold(
+//       backgroundColor: bgColor,
+//       body: SafeArea(
+//         child: SingleChildScrollView(
+//           child: Center(
+//             child: Padding(
+//               padding:
+//               const EdgeInsets.symmetric(horizontal: 24, vertical: 90.5),
+//               child: Container(
+//                 constraints: const BoxConstraints(maxWidth: 440),
+//                 child: Column(
+//                   crossAxisAlignment: CrossAxisAlignment.center,
+//                   children: [
+//                     const SizedBox(height: 40),
+//                     _buildLogoHeader(),
+//                     const SizedBox(height: 40),
+//                     _buildLoginCard(),
+//                   ],
+//                 ),
+//               ),
+//             ),
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+//
+//   Widget _buildLogoHeader() {
+//     return Column(
+//       crossAxisAlignment: CrossAxisAlignment.center,
+//       children: [
+//         Container(
+//           width: 80,
+//           height: 80,
+//           decoration: BoxDecoration(
+//             color: accentColor.withOpacity(0.2),
+//             border: Border.all(
+//               color: accentColor.withOpacity(0.1),
+//               width: 1,
+//             ),
+//             borderRadius: BorderRadius.circular(100),
+//           ),
+//           child: const Center(
+//             child: Icon(
+//               Icons.location_on,
+//               size: 40,
+//               color: accentColor,
+//             ),
+//           ),
+//         ),
+//         const SizedBox(height: 16),
+//         const Text(
+//           'Cottage',
+//           style: TextStyle(
+//             fontSize: 30,
+//             fontWeight: FontWeight.bold,
+//             color: primaryColor,
+//             letterSpacing: -0.75,
+//             fontFamily: 'Plus Jakarta Sans',
+//           ),
+//         ),
+//         const SizedBox(height: 8),
+//         Text(
+//           'Your family\'s shared space',
+//           style: TextStyle(
+//             fontSize: 14,
+//             fontWeight: FontWeight.w500,
+//             color: hintColor,
+//             fontFamily: 'Plus Jakarta Sans',
+//           ),
+//         ),
+//       ],
+//     );
+//   }
+//
+//   Widget _buildLoginCard() {
+//     return Container(
+//       decoration: BoxDecoration(
+//         color: Colors.white,
+//         borderRadius: BorderRadius.circular(32),
+//         border: Border.all(color: const Color(0xFFF1F5F9), width: 1),
+//         boxShadow: [
+//           BoxShadow(
+//             color: accentColor.withOpacity(0.08),
+//             blurRadius: 50,
+//             offset: const Offset(0, 20),
+//           ),
+//         ],
+//       ),
+//       child: Padding(
+//         padding: const EdgeInsets.all(33),
+//         child: Column(
+//           crossAxisAlignment: CrossAxisAlignment.stretch,
+//           children: [
+//             _buildEmailField(),
+//             const SizedBox(height: 24),
+//             _buildPasswordField(),
+//             const SizedBox(height: 24),
+//             _buildSignInButton(),
+//             const SizedBox(height: 32),
+//             _buildFooterLinks(),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+//
+//   Widget _buildEmailField() {
+//     return Column(
+//       crossAxisAlignment: CrossAxisAlignment.start,
+//       children: [
+//         const Text(
+//           'Email Address',
+//           style: TextStyle(
+//             fontSize: 14,
+//             fontWeight: FontWeight.w600,
+//             color: labelColor,
+//             fontFamily: 'Plus Jakarta Sans',
+//           ),
+//         ),
+//         const SizedBox(height: 8),
+//         Container(
+//           decoration: BoxDecoration(
+//             color: const Color(0xFFFFFDF5).withOpacity(0.5),
+//             borderRadius: BorderRadius.circular(24),
+//             border: Border.all(color: borderColor, width: 1),
+//           ),
+//           child: Padding(
+//             padding:
+//             const EdgeInsets.symmetric(horizontal: 21, vertical: 17.5),
+//             child: TextField(
+//               controller: emailController,
+//               keyboardType: TextInputType.emailAddress,
+//               decoration: InputDecoration(
+//                 hintText: 'hello@family.com',
+//                 hintStyle: TextStyle(
+//                   color: hintColor.withOpacity(0.5),
+//                   fontSize: 16,
+//                   fontFamily: 'Plus Jakarta Sans',
+//                 ),
+//                 border: InputBorder.none,
+//               ),
+//               style: const TextStyle(
+//                 fontSize: 16,
+//                 color: primaryColor,
+//                 fontFamily: 'Plus Jakarta Sans',
+//               ),
+//             ),
+//           ),
+//         ),
+//       ],
+//     );
+//   }
+//
+//   Widget _buildPasswordField() {
+//     return Column(
+//       crossAxisAlignment: CrossAxisAlignment.start,
+//       children: [
+//         const Text(
+//           'Password',
+//           style: TextStyle(
+//             fontSize: 14,
+//             fontWeight: FontWeight.w600,
+//             color: labelColor,
+//             fontFamily: 'Plus Jakarta Sans',
+//           ),
+//         ),
+//         const SizedBox(height: 8),
+//         Container(
+//           decoration: BoxDecoration(
+//             color: const Color(0xFFFFFDF5).withOpacity(0.5),
+//             borderRadius: BorderRadius.circular(24),
+//             border: Border.all(color: borderColor, width: 1),
+//           ),
+//           child: Padding(
+//             padding:
+//             const EdgeInsets.symmetric(horizontal: 21, vertical: 17.5),
+//             child: TextField(
+//               controller: passwordController,
+//               obscureText: obscurePassword,
+//               decoration: InputDecoration(
+//                 hintText: '••••••••',
+//                 hintStyle: TextStyle(
+//                   color: hintColor.withOpacity(0.5),
+//                   fontSize: 16,
+//                   fontFamily: 'Plus Jakarta Sans',
+//                 ),
+//                 border: InputBorder.none,
+//                 suffixIcon: GestureDetector(
+//                   onTap: () {
+//                     setState(() {
+//                       obscurePassword = !obscurePassword;
+//                     });
+//                   },
+//                   child: Icon(
+//                     obscurePassword ? Icons.visibility_off : Icons.visibility,
+//                     color: hintColor,
+//                     size: 20,
+//                   ),
+//                 ),
+//               ),
+//               style: const TextStyle(
+//                 fontSize: 16,
+//                 color: primaryColor,
+//                 fontFamily: 'Plus Jakarta Sans',
+//               ),
+//             ),
+//           ),
+//         ),
+//       ],
+//     );
+//   }
+//
+//   Widget _buildSignInButton() {
+//     return Container(
+//       decoration: BoxDecoration(
+//         gradient: const LinearGradient(
+//           colors: [accentColor, secondaryAccent],
+//           begin: Alignment.centerLeft,
+//           end: Alignment.centerRight,
+//         ),
+//         borderRadius: BorderRadius.circular(24),
+//       ),
+//       child: Material(
+//         color: Colors.transparent,
+//         child: InkWell(
+//           onTap: _isLoading ? null : _signIn,
+//           borderRadius: BorderRadius.circular(24),
+//           child: Padding(
+//             padding: const EdgeInsets.symmetric(vertical: 16),
+//             child: _isLoading
+//                 ? const Center(
+//               child: SizedBox(
+//                 width: 22,
+//                 height: 22,
+//                 child: CircularProgressIndicator(
+//                   strokeWidth: 2.5,
+//                   valueColor:
+//                   AlwaysStoppedAnimation<Color>(Colors.white),
+//                 ),
+//               ),
+//             )
+//                 : const Text(
+//               'Sign In',
+//               textAlign: TextAlign.center,
+//               style: TextStyle(
+//                 fontSize: 16,
+//                 fontWeight: FontWeight.bold,
+//                 color: Colors.white,
+//                 fontFamily: 'Plus Jakarta Sans',
+//               ),
+//             ),
+//           ),
+//         ),
+//       ),
+//     );
+//   }
+//
+//   Widget _buildFooterLinks() {
+//     return Column(
+//       children: [
+//         Center(
+//           child: Text(
+//             'Forgot Password?',
+//             style: TextStyle(
+//               fontSize: 14,
+//               fontWeight: FontWeight.w500,
+//               color: hintColor,
+//               fontFamily: 'Plus Jakarta Sans',
+//             ),
+//           ),
+//         ),
+//         const SizedBox(height: 16),
+//         Divider(
+//           color: const Color(0xFFF1F5F9),
+//           height: 1,
+//           thickness: 1,
+//         ),
+//         const SizedBox(height: 25),
+//         Center(
+//           child: RichText(
+//             textAlign: TextAlign.center,
+//             text: TextSpan(
+//               style: TextStyle(
+//                 fontSize: 14,
+//                 fontWeight: FontWeight.w400,
+//                 color: hintColor,
+//                 fontFamily: 'Plus Jakarta Sans',
+//               ),
+//               children: [
+//                 const TextSpan(text: 'Don\'t have an account? '),
+//                 WidgetSpan(
+//                   alignment: PlaceholderAlignment.middle,
+//                   child: GestureDetector(
+//                     onTap: () {
+//                       Navigator.of(context).push(
+//                         MaterialPageRoute(
+//                           builder: (_) => const RegisterScreen(),
+//                         ),
+//                       );
+//                     },
+//                     child: const Text(
+//                       'Create one',
+//                       style: TextStyle(
+//                         fontWeight: FontWeight.bold,
+//                         color: accentColor,
+//                         fontFamily: 'Plus Jakarta Sans',
+//                       ),
+//                     ),
+//                   ),
+//                 ),
+//               ],
+//             ),
+//           ),
+//         ),
+//       ],
+//     );
+//   }
+// }
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -53,8 +500,10 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      final userCredential =
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      final auth = FirebaseAuth.instance;
+      final firestore = FirebaseFirestore.instance;
+
+      final userCredential = await auth.signInWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -68,10 +517,34 @@ class _LoginScreenState extends State<LoginScreen> {
         );
       }
 
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'lastLoginAt': Timestamp.now(),
-        'updatedAt': Timestamp.now(),
-      }, SetOptions(merge: true));
+      final userDocRef = firestore.collection('users').doc(user.uid);
+      final userDoc = await userDocRef.get();
+      final now = Timestamp.now();
+
+      if (!userDoc.exists) {
+        final fallbackName = user.displayName?.trim().isNotEmpty == true
+            ? user.displayName!.trim()
+            : email.split('@').first;
+
+        await userDocRef.set({
+          'uid': user.uid,
+          'email': user.email ?? email,
+          'username': fallbackName.replaceAll(' ', ''),
+          'fullName': fallbackName,
+          'photoURL': user.photoURL ?? '',
+          'bio': '',
+          'role': 'owner',
+          'status': 'active',
+          'createdAt': now,
+          'updatedAt': now,
+          'lastLoginAt': now,
+        });
+      } else {
+        await userDocRef.set({
+          'lastLoginAt': now,
+          'updatedAt': now,
+        }, SetOptions(merge: true));
+      }
 
       if (!mounted) return;
 
@@ -93,6 +566,24 @@ class _LoginScreenState extends State<LoginScreen> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<void> _resetPassword() async {
+    final email = emailController.text.trim();
+
+    if (email.isEmpty) {
+      _showMessage('Please enter your email first.');
+      return;
+    }
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      _showMessage('Password reset email sent.');
+    } on FirebaseAuthException catch (e) {
+      _showMessage(_getFirebaseAuthErrorMessage(e));
+    } catch (e) {
+      _showMessage('Failed to send reset email: $e');
     }
   }
 
@@ -131,9 +622,8 @@ class _LoginScreenState extends State<LoginScreen> {
         child: SingleChildScrollView(
           child: Center(
             child: Padding(
-              padding:
-              const EdgeInsets.symmetric(horizontal: 24, vertical: 90.5),
-              child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 90.5),
+              child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 440),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
@@ -253,8 +743,7 @@ class _LoginScreenState extends State<LoginScreen> {
             border: Border.all(color: borderColor, width: 1),
           ),
           child: Padding(
-            padding:
-            const EdgeInsets.symmetric(horizontal: 21, vertical: 17.5),
+            padding: const EdgeInsets.symmetric(horizontal: 21, vertical: 17.5),
             child: TextField(
               controller: emailController,
               keyboardType: TextInputType.emailAddress,
@@ -300,8 +789,7 @@ class _LoginScreenState extends State<LoginScreen> {
             border: Border.all(color: borderColor, width: 1),
           ),
           child: Padding(
-            padding:
-            const EdgeInsets.symmetric(horizontal: 21, vertical: 17.5),
+            padding: const EdgeInsets.symmetric(horizontal: 21, vertical: 17.5),
             child: TextField(
               controller: passwordController,
               obscureText: obscurePassword,
@@ -362,8 +850,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 height: 22,
                 child: CircularProgressIndicator(
                   strokeWidth: 2.5,
-                  valueColor:
-                  AlwaysStoppedAnimation<Color>(Colors.white),
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
               ),
             )
@@ -387,19 +874,22 @@ class _LoginScreenState extends State<LoginScreen> {
     return Column(
       children: [
         Center(
-          child: Text(
-            'Forgot Password?',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w500,
-              color: hintColor,
-              fontFamily: 'Plus Jakarta Sans',
+          child: GestureDetector(
+            onTap: _resetPassword,
+            child: Text(
+              'Forgot Password?',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: hintColor,
+                fontFamily: 'Plus Jakarta Sans',
+              ),
             ),
           ),
         ),
         const SizedBox(height: 16),
-        Divider(
-          color: const Color(0xFFF1F5F9),
+        const Divider(
+          color: Color(0xFFF1F5F9),
           height: 1,
           thickness: 1,
         ),
@@ -420,7 +910,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   alignment: PlaceholderAlignment.middle,
                   child: GestureDetector(
                     onTap: () {
-                      Navigator.of(context).push(
+                      Navigator.of(context).pushReplacement(
                         MaterialPageRoute(
                           builder: (_) => const RegisterScreen(),
                         ),

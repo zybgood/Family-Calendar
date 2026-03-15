@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'calendar_screen.dart';
 import 'login_screen.dart';
@@ -26,9 +30,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final emailController = TextEditingController();
   final passwordController = TextEditingController();
   final familyNameController = TextEditingController();
-  final familyStatusController = TextEditingController();
+
+  final ImagePicker _picker = ImagePicker();
+  XFile? _selectedAvatar;
 
   bool _isLoading = false;
+  bool _obscurePassword = true;
+
+  final List<String> _familyRoles = [
+    'father',
+    'mother',
+    'son',
+    'daughter',
+    'grandpa',
+    'grandma',
+    'other',
+  ];
+
+  String? _selectedFamilyRole;
 
   @override
   void dispose() {
@@ -36,8 +55,38 @@ class _RegisterScreenState extends State<RegisterScreen> {
     emailController.dispose();
     passwordController.dispose();
     familyNameController.dispose();
-    familyStatusController.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickAvatar() async {
+    try {
+      final image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 70,
+      );
+
+      if (image == null) return;
+
+      setState(() {
+        _selectedAvatar = image;
+      });
+    } catch (e) {
+      _showMessage('Failed to pick image: $e');
+    }
+  }
+
+  Future<String> _uploadAvatar(String uid) async {
+    if (_selectedAvatar == null) return '';
+
+    final file = File(_selectedAvatar!.path);
+
+    final ref = FirebaseStorage.instance
+        .ref()
+        .child('user_avatars')
+        .child('$uid.jpg');
+
+    await ref.putFile(file);
+    return await ref.getDownloadURL();
   }
 
   Future<void> _register() async {
@@ -45,7 +94,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
     final familyName = familyNameController.text.trim();
-    final familyStatus = familyStatusController.text.trim();
+
+    if (_selectedAvatar == null) {
+      _showMessage('Please upload your profile photo.');
+      return;
+    }
 
     if (fullName.isEmpty) {
       _showMessage('Please enter your full name.');
@@ -67,13 +120,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    // 如果填写了家庭名，则必须选择家庭角色
+    if (familyName.isNotEmpty && _selectedFamilyRole == null) {
+      _showMessage('Please select your family role.');
+      return;
+    }
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      final userCredential =
-      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+      final auth = FirebaseAuth.instance;
+      final firestore = FirebaseFirestore.instance;
+
+      final userCredential = await auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
@@ -89,18 +150,82 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       await user.updateDisplayName(fullName);
 
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-        'uid': user.uid,
-        'fullName': fullName,
+      final uid = user.uid;
+      final now = Timestamp.now();
+
+      final photoURL = await _uploadAvatar(uid);
+      await user.updatePhotoURL(photoURL);
+
+      final username = _generateUsername(fullName, email);
+
+      final batch = firestore.batch();
+
+      // 1. users/{uid}
+      final userDocRef = firestore.collection('users').doc(uid);
+      batch.set(userDocRef, {
+        'uid': uid,
         'email': email,
-        'familyId': '',
-        'familyName': familyName,
-        'familyStatus': familyStatus,
-        'role': 'owner',
+        'username': username,
+        'fullName': fullName,
+        'photoURL': photoURL,
+        'bio': '',
         'status': 'active',
-        'createdAt': Timestamp.now(),
-        'updatedAt': Timestamp.now(),
+        'createdAt': now,
+        'updatedAt': now,
+        'lastLoginAt': now,
       });
+
+      // 如果填写 familyName，则创建家庭
+      if (familyName.isNotEmpty) {
+        final familyDocRef = firestore.collection('families').doc();
+        final familyId = familyDocRef.id;
+
+        // 2. families/{familyId}
+        batch.set(familyDocRef, {
+          'familyId': familyId,
+          'familyName': familyName,
+          'description': 'Our family group',
+          'createdBy': uid,
+          'createdAt': now,
+          'updatedAt': now,
+          'photoURL': '',
+          'isArchived': false,
+        });
+
+        // 3. families/{familyId}/members/{uid}
+        final familyMemberRef = firestore
+            .collection('families')
+            .doc(familyId)
+            .collection('members')
+            .doc(uid);
+
+        batch.set(familyMemberRef, {
+          'uid': uid,
+          'nickname': fullName,
+          'role': 'owner', // 系统权限角色
+          'familyRole': _selectedFamilyRole, // 家庭身份角色
+          'status': 'active',
+          'joinedAt': now,
+        });
+
+        // 4. users/{uid}/families/{familyId}
+        final userFamilyRef = firestore
+            .collection('users')
+            .doc(uid)
+            .collection('families')
+            .doc(familyId);
+
+        batch.set(userFamilyRef, {
+          'familyId': familyId,
+          'familyName': familyName,
+          'role': 'owner',
+          'familyRole': _selectedFamilyRole,
+          'joinedAt': now,
+          'photoURL': '',
+        });
+      }
+
+      await batch.commit();
 
       if (!mounted) return;
 
@@ -125,6 +250,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  String _generateUsername(String fullName, String email) {
+    final trimmedName = fullName.trim();
+    if (trimmedName.isNotEmpty) {
+      return trimmedName.replaceAll(' ', '');
+    }
+    return email.split('@').first;
+  }
+
   String _getFirebaseAuthErrorMessage(FirebaseAuthException e) {
     switch (e.code) {
       case 'email-already-in-use':
@@ -143,9 +276,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _showMessage(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
+  }
+
+  String _familyRoleLabel(String role) {
+    switch (role) {
+      case 'father':
+        return 'Father';
+      case 'mother':
+        return 'Mother';
+      case 'son':
+        return 'Son';
+      case 'daughter':
+        return 'Daughter';
+      case 'grandpa':
+        return 'Grandpa';
+      case 'grandma':
+        return 'Grandma';
+      case 'other':
+        return 'Other';
+      default:
+        return role;
+    }
   }
 
   @override
@@ -210,12 +365,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ),
         const SizedBox(height: 8),
-        Text(
+        const Text(
           'Your family\'s shared space',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: const Color(0xFF7E7664),
+            color: Color(0xFF7E7664),
             fontFamily: 'Plus Jakarta Sans',
           ),
         ),
@@ -246,6 +401,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            _buildAvatarPicker(),
+            const SizedBox(height: 20),
             _buildFullNameField(),
             const SizedBox(height: 20),
             _buildEmailField(),
@@ -254,7 +411,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: 20),
             _buildFamilyNameField(),
             const SizedBox(height: 20),
-            _buildFamilyStatusField(),
+            _buildFamilyRoleField(),
             const SizedBox(height: 28),
             _buildCreateAccountButton(),
             const SizedBox(height: 32),
@@ -262,6 +419,45 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildAvatarPicker() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        GestureDetector(
+          onTap: _isLoading ? null : _pickAvatar,
+          child: CircleAvatar(
+            radius: 42,
+            backgroundColor: accentColor.withOpacity(0.2),
+            backgroundImage: _selectedAvatar != null
+                ? FileImage(File(_selectedAvatar!.path))
+                : null,
+            child: _selectedAvatar == null
+                ? const Icon(
+              Icons.person,
+              size: 40,
+              color: primaryColor,
+            )
+                : null,
+          ),
+        ),
+        const SizedBox(height: 10),
+        GestureDetector(
+          onTap: _isLoading ? null : _pickAvatar,
+          child: const Text(
+            'Upload Profile Photo',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: secondaryAccent,
+              fontFamily: 'Plus Jakarta Sans',
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -377,18 +573,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
             border: Border.all(color: borderColor, width: 1),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 18),
+            padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 6),
             child: TextField(
               controller: passwordController,
-              obscureText: true,
-              decoration: const InputDecoration(
+              obscureText: _obscurePassword,
+              decoration: InputDecoration(
                 hintText: 'Create a secure password',
-                hintStyle: TextStyle(
+                hintStyle: const TextStyle(
                   color: placeholderColor,
                   fontSize: 16,
                   fontFamily: 'Plus Jakarta Sans',
                 ),
                 border: InputBorder.none,
+                suffixIcon: IconButton(
+                  onPressed: () {
+                    setState(() {
+                      _obscurePassword = !_obscurePassword;
+                    });
+                  },
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                    color: hintColor,
+                  ),
+                ),
               ),
               style: const TextStyle(
                 fontSize: 16,
@@ -407,7 +614,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'Family Name',
+          'Family Name (Optional)',
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
@@ -426,8 +633,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 18),
             child: TextField(
               controller: familyNameController,
+              onChanged: (_) {
+                setState(() {});
+              },
               decoration: const InputDecoration(
-                hintText: 'Enter your family name',
+                hintText: 'Enter your family name (optional)',
                 hintStyle: TextStyle(
                   color: placeholderColor,
                   fontSize: 16,
@@ -447,13 +657,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _buildFamilyStatusField() {
+  Widget _buildFamilyRoleField() {
+    final hasFamilyName = familyNameController.text.trim().isNotEmpty;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          'Family Status',
-          style: TextStyle(
+        Text(
+          hasFamilyName ? 'Family Role *' : 'Family Role',
+          style: const TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
             color: labelColor,
@@ -463,28 +675,48 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: hasFamilyName ? Colors.white : const Color(0xFFF8FAFC),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(color: borderColor, width: 1),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 18),
-            child: TextField(
-              controller: familyStatusController,
+            padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 4),
+            child: DropdownButtonFormField<String>(
+              value: _selectedFamilyRole,
+              isExpanded: true,
               decoration: const InputDecoration(
-                hintText: 'Enter your family status',
-                hintStyle: TextStyle(
+                border: InputBorder.none,
+              ),
+              hint: Text(
+                hasFamilyName
+                    ? 'Select your role in the family'
+                    : 'Fill family name first',
+                style: const TextStyle(
                   color: placeholderColor,
                   fontSize: 16,
                   fontFamily: 'Plus Jakarta Sans',
                 ),
-                border: InputBorder.none,
               ),
-              style: const TextStyle(
-                fontSize: 16,
-                color: primaryColor,
-                fontFamily: 'Plus Jakarta Sans',
-              ),
+              items: _familyRoles.map((role) {
+                return DropdownMenuItem<String>(
+                  value: role,
+                  child: Text(
+                    _familyRoleLabel(role),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: primaryColor,
+                      fontFamily: 'Plus Jakarta Sans',
+                    ),
+                  ),
+                );
+              }).toList(),
+              onChanged: hasFamilyName && !_isLoading
+                  ? (value) {
+                setState(() {
+                  _selectedFamilyRole = value;
+                });
+              }
+                  : null,
             ),
           ),
         ),
@@ -544,31 +776,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  // Widget _buildBottomNavigation() {
-  //   return Center(
-  //     child: RichText(
-  //       textAlign: TextAlign.center,
-  //       text: const TextSpan(
-  //         style: TextStyle(
-  //           fontSize: 16,
-  //           fontWeight: FontWeight.w400,
-  //           color: hintColor,
-  //           fontFamily: 'Plus Jakarta Sans',
-  //         ),
-  //         children: [
-  //           TextSpan(text: 'Already have an account? '),
-  //           TextSpan(
-  //             text: 'Sign In',
-  //             style: TextStyle(
-  //               fontWeight: FontWeight.bold,
-  //               color: secondaryAccent,
-  //             ),
-  //           ),
-  //         ],
-  //       ),
-  //     ),
-  //   );
-  // }
   Widget _buildBottomNavigation() {
     return Center(
       child: RichText(
