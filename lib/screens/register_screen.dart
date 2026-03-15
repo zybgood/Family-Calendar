@@ -1,4 +1,9 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+
+import 'calendar_screen.dart';
+import 'login_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({Key? key}) : super(key: key);
@@ -23,6 +28,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final familyNameController = TextEditingController();
   final familyStatusController = TextEditingController();
 
+  bool _isLoading = false;
+
   @override
   void dispose() {
     fullNameController.dispose();
@@ -31,6 +38,114 @@ class _RegisterScreenState extends State<RegisterScreen> {
     familyNameController.dispose();
     familyStatusController.dispose();
     super.dispose();
+  }
+
+  Future<void> _register() async {
+    final fullName = fullNameController.text.trim();
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
+    final familyName = familyNameController.text.trim();
+    final familyStatus = familyStatusController.text.trim();
+
+    if (fullName.isEmpty) {
+      _showMessage('Please enter your full name.');
+      return;
+    }
+
+    if (email.isEmpty) {
+      _showMessage('Please enter your email.');
+      return;
+    }
+
+    if (password.isEmpty) {
+      _showMessage('Please enter your password.');
+      return;
+    }
+
+    if (password.length < 6) {
+      _showMessage('Password must be at least 6 characters.');
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final userCredential =
+      await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      final user = userCredential.user;
+
+      if (user == null) {
+        throw FirebaseAuthException(
+          code: 'user-null',
+          message: 'User creation failed. Please try again.',
+        );
+      }
+
+      await user.updateDisplayName(fullName);
+
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'uid': user.uid,
+        'fullName': fullName,
+        'email': email,
+        'familyId': '',
+        'familyName': familyName,
+        'familyStatus': familyStatus,
+        'role': 'owner',
+        'status': 'active',
+        'createdAt': Timestamp.now(),
+        'updatedAt': Timestamp.now(),
+      });
+
+      if (!mounted) return;
+
+      _showMessage('Registration successful.');
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const CalendarScreen(),
+        ),
+      );
+    } on FirebaseAuthException catch (e) {
+      _showMessage(_getFirebaseAuthErrorMessage(e));
+    } catch (e) {
+      _showMessage('Registration failed: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  String _getFirebaseAuthErrorMessage(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'email-already-in-use':
+        return 'This email is already registered.';
+      case 'invalid-email':
+        return 'The email address is invalid.';
+      case 'weak-password':
+        return 'The password is too weak.';
+      case 'operation-not-allowed':
+        return 'Email/password sign-in is not enabled.';
+      case 'network-request-failed':
+        return 'Network error. Please check your connection.';
+      default:
+        return e.message ?? 'Registration failed. Please try again.';
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   @override
@@ -42,11 +157,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              child: Container(
+              child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 440),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
+                    _buildLogoHeader(),
+                    const SizedBox(height: 24),
                     _buildRegisterCard(),
                   ],
                 ),
@@ -98,7 +215,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w500,
-            color: Color(0xFF7E7664),
+            color: const Color(0xFF7E7664),
             fontFamily: 'Plus Jakarta Sans',
           ),
         ),
@@ -172,9 +289,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 18),
             child: TextField(
               controller: fullNameController,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 hintText: 'Enter your full name',
-                hintStyle: const TextStyle(
+                hintStyle: TextStyle(
                   color: placeholderColor,
                   fontSize: 16,
                   fontFamily: 'Plus Jakarta Sans',
@@ -218,9 +335,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: TextField(
               controller: emailController,
               keyboardType: TextInputType.emailAddress,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 hintText: 'name@example.com',
-                hintStyle: const TextStyle(
+                hintStyle: TextStyle(
                   color: placeholderColor,
                   fontSize: 16,
                   fontFamily: 'Plus Jakarta Sans',
@@ -264,9 +381,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             child: TextField(
               controller: passwordController,
               obscureText: true,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 hintText: 'Create a secure password',
-                hintStyle: const TextStyle(
+                hintStyle: TextStyle(
                   color: placeholderColor,
                   fontSize: 16,
                   fontFamily: 'Plus Jakarta Sans',
@@ -309,9 +426,54 @@ class _RegisterScreenState extends State<RegisterScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 18),
             child: TextField(
               controller: familyNameController,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 hintText: 'Enter your family name',
-                hintStyle: const TextStyle(
+                hintStyle: TextStyle(
+                  color: placeholderColor,
+                  fontSize: 16,
+                  fontFamily: 'Plus Jakarta Sans',
+                ),
+                border: InputBorder.none,
+              ),
+              style: const TextStyle(
+                fontSize: 16,
+                color: primaryColor,
+                fontFamily: 'Plus Jakarta Sans',
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFamilyStatusField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Family Status',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: labelColor,
+            fontFamily: 'Plus Jakarta Sans',
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: borderColor, width: 1),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 18),
+            child: TextField(
+              controller: familyStatusController,
+              decoration: const InputDecoration(
+                hintText: 'Enter your family status',
+                hintStyle: TextStyle(
                   color: placeholderColor,
                   fontSize: 16,
                   fontFamily: 'Plus Jakarta Sans',
@@ -350,16 +512,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () {
-            // Handle account creation
-            print('Full Name: ${fullNameController.text}');
-            print('Email: ${emailController.text}');
-            print('Password: ${passwordController.text}');
-          },
+          onTap: _isLoading ? null : _register,
           borderRadius: BorderRadius.circular(24),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 16),
-            child: const Text(
+            child: _isLoading
+                ? const Center(
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor:
+                  AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+            )
+                : const Text(
               'Create Account',
               textAlign: TextAlign.center,
               style: TextStyle(
@@ -375,51 +544,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  Widget _buildFamilyStatusField() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Family Status',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: labelColor,
-            fontFamily: 'Plus Jakarta Sans',
-          ),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: borderColor, width: 1),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 17, vertical: 18),
-            child: TextField(
-              controller: familyStatusController,
-              decoration: InputDecoration(
-                hintText: 'Enter your family status',
-                hintStyle: const TextStyle(
-                  color: placeholderColor,
-                  fontSize: 16,
-                  fontFamily: 'Plus Jakarta Sans',
-                ),
-                border: InputBorder.none,
-              ),
-              style: const TextStyle(
-                fontSize: 16,
-                color: primaryColor,
-                fontFamily: 'Plus Jakarta Sans',
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
+  // Widget _buildBottomNavigation() {
+  //   return Center(
+  //     child: RichText(
+  //       textAlign: TextAlign.center,
+  //       text: const TextSpan(
+  //         style: TextStyle(
+  //           fontSize: 16,
+  //           fontWeight: FontWeight.w400,
+  //           color: hintColor,
+  //           fontFamily: 'Plus Jakarta Sans',
+  //         ),
+  //         children: [
+  //           TextSpan(text: 'Already have an account? '),
+  //           TextSpan(
+  //             text: 'Sign In',
+  //             style: TextStyle(
+  //               fontWeight: FontWeight.bold,
+  //               color: secondaryAccent,
+  //             ),
+  //           ),
+  //         ],
+  //       ),
+  //     ),
+  //   );
+  // }
   Widget _buildBottomNavigation() {
     return Center(
       child: RichText(
@@ -433,11 +582,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           children: [
             const TextSpan(text: 'Already have an account? '),
-            TextSpan(
-              text: 'Sign In',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: secondaryAccent,
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.of(context).pushReplacement(
+                    MaterialPageRoute(
+                      builder: (_) => const LoginScreen(),
+                    ),
+                  );
+                },
+                child: const Text(
+                  'Sign In',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: secondaryAccent,
+                    fontFamily: 'Plus Jakarta Sans',
+                  ),
+                ),
               ),
             ),
           ],

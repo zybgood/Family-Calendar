@@ -296,7 +296,9 @@ class SettingsScreen extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           _navItem(context, Icons.calendar_today, 'Today', selected: false, onTap: () => Navigator.pop(context)),
-          _navItem(context, Icons.people, 'Family', selected: false, onTap: () => Navigator.pop(context)),
+          _navItem(context, Icons.people, 'Family', selected: false, onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const FamilyScreen()),
+          )),
           _navItem(context, Icons.chat_bubble_outline, 'Chat', selected: false, onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const ChatListScreen()),
