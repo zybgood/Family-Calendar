@@ -21,9 +21,13 @@ class SelectMembersScreen extends StatefulWidget {
   const SelectMembersScreen({
     Key? key,
     required this.initialSelectedNames,
+    required this.familyId,
+    required this.familyName,
   }) : super(key: key);
 
   final List<String> initialSelectedNames;
+  final String familyId;
+  final String familyName;
 
   @override
   State<SelectMembersScreen> createState() => _SelectMembersScreenState();
@@ -74,7 +78,8 @@ class _SelectMembersScreenState extends State<SelectMembersScreen> {
     final query = _searchController.text.trim().toLowerCase();
     if (query.isEmpty) return _members;
     return _members.where((m) {
-      return m.name.toLowerCase().contains(query) || m.role.toLowerCase().contains(query);
+      return m.name.toLowerCase().contains(query) ||
+          m.role.toLowerCase().contains(query);
     }).toList();
   }
 
@@ -296,10 +301,10 @@ class _SelectMembersScreenState extends State<SelectMembersScreen> {
                   ),
                   child: member.selected
                       ? const Icon(
-                          Icons.check,
-                          size: 16,
-                          color: Colors.white,
-                        )
+                    Icons.check,
+                    size: 16,
+                    color: Colors.white,
+                  )
                       : null,
                 ),
               ],
@@ -315,7 +320,12 @@ class _SelectMembersScreenState extends State<SelectMembersScreen> {
       borderRadius: BorderRadius.circular(18),
       onTap: () {
         Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const FamilyScreen()),
+          MaterialPageRoute(
+            builder: (_) => FamilyScreen(
+              familyId: widget.familyId,
+              familyName: widget.familyName,
+            ),
+          ),
         );
       },
       child: Container(

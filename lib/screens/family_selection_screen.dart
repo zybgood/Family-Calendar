@@ -32,18 +32,21 @@ class FamilySelectionScreen extends StatefulWidget {
 class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
   final List<_FamilyGroup> _groups = const [
     _FamilyGroup(
+      id: 'family_001',
       name: 'Our Cozy Home',
       memberCount: 4,
       avatars: [_avatar1, _avatar2, _avatar3],
       extraCount: 1,
     ),
     _FamilyGroup(
+      id: 'family_002',
       name: 'Smith Family',
       memberCount: 6,
       avatars: [_avatar4, _avatar5, _avatar6],
       extraCount: 3,
     ),
     _FamilyGroup(
+      id: 'family_003',
       name: 'Grandma\'s House',
       memberCount: 3,
       avatars: [_avatar7, _avatar8, _avatar9],
@@ -103,11 +106,11 @@ class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
               ),
             ),
           ),
-          Expanded(
+          const Expanded(
             child: Center(
               child: Text(
                 'Select Family',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
                   color: _headline,
@@ -128,28 +131,32 @@ class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: _groups
-            .map((group) => Padding(
-                  padding: const EdgeInsets.only(bottom: 24),
-                  child: _FamilyGroupCard(
-                    group: group,
-                    onSelectAll: () {
-                      // Handle select all action
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Selected all members from ${group.name}'),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    },
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const FamilyScreen(),
-                        ),
-                      );
-                    },
+            .map(
+              (group) => Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: _FamilyGroupCard(
+              group: group,
+              onSelectAll: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Selected all members from ${group.name}'),
+                    duration: const Duration(seconds: 2),
                   ),
-                ))
+                );
+              },
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => FamilyScreen(
+                      familyId: group.id,
+                      familyName: group.name,
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        )
             .toList(growable: false),
       ),
     );
@@ -157,12 +164,14 @@ class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
 }
 
 class _FamilyGroup {
+  final String id;
   final String name;
   final int memberCount;
   final List<String> avatars;
   final int extraCount;
 
   const _FamilyGroup({
+    required this.id,
     required this.name,
     required this.memberCount,
     required this.avatars,
@@ -201,59 +210,59 @@ class _FamilyGroupCard extends StatelessWidget {
           ],
         ),
         child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            group.name,
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: _headline,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              group.name,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: _headline,
+              ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${group.memberCount} family members',
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: _accent,
+            const SizedBox(height: 4),
+            Text(
+              '${group.memberCount} family members',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: _accent,
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              _buildAvatars(),
-              GestureDetector(
-                onTap: onSelectAll,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: _accent,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.05),
-                        blurRadius: 2,
-                        offset: const Offset(0, 1),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                _buildAvatars(),
+                GestureDetector(
+                  onTap: onSelectAll,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _accent,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 2,
+                          offset: const Offset(0, 1),
+                        ),
+                      ],
+                    ),
+                    child: const Text(
+                      'Select All',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: _headline,
                       ),
-                    ],
-                  ),
-                  child: const Text(
-                    'Select All',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: _headline,
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
         ),
       ),
     );

@@ -1,4 +1,6 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+
 import '../assets/figma_assets.dart';
 import 'invitation_screen.dart';
 import 'chat_screen.dart';
@@ -7,17 +9,119 @@ import 'settings_screen.dart';
 import 'calendar_screen.dart';
 
 class FamilyScreen extends StatefulWidget {
-  const FamilyScreen({Key? key}) : super(key: key);
+  final String familyId;
+  final String familyName;
+
+  const FamilyScreen({
+    Key? key,
+    required this.familyId,
+    required this.familyName,
+  }) : super(key: key);
 
   @override
   State<FamilyScreen> createState() => _FamilyScreenState();
 }
 
 class _FamilyScreenState extends State<FamilyScreen> {
-
   static const bgColor = Color(0xFFFDFAF2);
   static const primaryColor = Color(0xFF5C4D33);
   static const accentColor = Color(0xFFE2B736);
+
+  late Future<List<Map<String, dynamic>>> _membersFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _membersFuture = _loadFamilyMembers();
+  }
+
+  Future<void> _refreshMembers() async {
+    final future = _loadFamilyMembers();
+    setState(() {
+      _membersFuture = future;
+    });
+    await future;
+  }
+
+  Future<Map<String, dynamic>?> _findUserByUid(String userId) async {
+    final firestore = FirebaseFirestore.instance;
+
+    // 方案 1：users 文档 id 就是 uid
+    final directDoc = await firestore.collection('users').doc(userId).get();
+    if (directDoc.exists) {
+      return directDoc.data();
+    }
+
+    // 方案 2：users 文档里有 uid 字段
+    final query = await firestore
+        .collection('users')
+        .where('uid', isEqualTo: userId)
+        .limit(1)
+        .get();
+
+    if (query.docs.isNotEmpty) {
+      return query.docs.first.data();
+    }
+
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> _loadFamilyMembers() async {
+    final firestore = FirebaseFirestore.instance;
+
+    final snapshot = await firestore
+        .collection('families')
+        .doc(widget.familyId)
+        .collection('members')
+        .get();
+
+    final List<Map<String, dynamic>> members = [];
+
+    for (final doc in snapshot.docs) {
+      final memberData = doc.data();
+
+      // members 文档 id = userId，或者字段里有 userId
+      final String userId = (memberData['userId'] ?? doc.id).toString().trim();
+
+      if (userId.isEmpty) {
+        continue;
+      }
+
+      final Map<String, dynamic>? userData = await _findUserByUid(userId);
+
+      final String role = (memberData['role'] ?? 'member').toString().trim();
+
+      final String fullName = (
+          userData?['fullName'] ??
+              userData?['name'] ??
+              userData?['displayName'] ??
+              memberData['fullName'] ??
+              memberData['name'] ??
+              memberData['displayName'] ??
+              'Unknown Member'
+      ).toString();
+
+      final String photoURL = (
+          userData?['photoURL'] ??
+              userData?['photoUrl'] ??
+              userData?['avatar'] ??
+              memberData['photoURL'] ??
+              memberData['photoUrl'] ??
+              memberData['avatar'] ??
+              ''
+      ).toString().trim();
+
+      members.add({
+        'userId': userId,
+        'name': fullName,
+        'role': role.isEmpty ? 'member' : role,
+        'badge': role.toLowerCase() == 'owner' ? 'Owner' : null,
+        'photoURL': photoURL,
+      });
+    }
+
+    return members;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,18 +132,24 @@ class _FamilyScreenState extends State<FamilyScreen> {
           children: [
             _buildHeader(context),
             Expanded(
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildInviteSection(),
-                      const SizedBox(height: 40),
-                      _buildCommunicationSection(context),
-                      const SizedBox(height: 40),
-                      _buildExistingFamilySection(),
-                    ],
+              child: RefreshIndicator(
+                onRefresh: _refreshMembers,
+                color: accentColor,
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  child: Padding(
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildInviteSection(),
+                        const SizedBox(height: 40),
+                        _buildCommunicationSection(context),
+                        const SizedBox(height: 40),
+                        _buildExistingFamilySection(),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -62,8 +172,8 @@ class _FamilyScreenState extends State<FamilyScreen> {
             child: Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3EEE0),
+              decoration: const BoxDecoration(
+                color: Color(0xFFF3EEE0),
                 shape: BoxShape.circle,
               ),
               child: const Center(
@@ -71,9 +181,9 @@ class _FamilyScreenState extends State<FamilyScreen> {
               ),
             ),
           ),
-          const Text(
-            'Family Member',
-            style: TextStyle(
+          Text(
+            widget.familyName.isEmpty ? 'Family Member' : widget.familyName,
+            style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w800,
               color: primaryColor,
@@ -88,7 +198,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
 
   Widget _buildInviteSection() {
     return Builder(
-        builder: (context) {
+      builder: (context) {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -103,7 +213,8 @@ class _FamilyScreenState extends State<FamilyScreen> {
             ),
             const SizedBox(height: 12),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 17),
+              padding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 17),
               decoration: BoxDecoration(
                 color: const Color(0xFFF3EEE0),
                 borderRadius: BorderRadius.circular(24),
@@ -154,14 +265,16 @@ class _FamilyScreenState extends State<FamilyScreen> {
                 child: InkWell(
                   onTap: () {
                     Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const InvitationScreen()),
+                      MaterialPageRoute(
+                        builder: (_) => const InvitationScreen(),
+                      ),
                     );
                   },
                   borderRadius: BorderRadius.circular(24),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text(
+                    children: const [
+                      Text(
                         'Send Invitation',
                         style: TextStyle(
                           fontSize: 16,
@@ -169,8 +282,8 @@ class _FamilyScreenState extends State<FamilyScreen> {
                           color: primaryColor,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      const Icon(Icons.send, size: 14, color: primaryColor),
+                      SizedBox(width: 8),
+                      Icon(Icons.send, size: 14, color: primaryColor),
                     ],
                   ),
                 ),
@@ -206,7 +319,8 @@ class _FamilyScreenState extends State<FamilyScreen> {
             padding: const EdgeInsets.all(21),
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.6),
-              border: Border.all(color: Colors.white.withOpacity(0.4), width: 1),
+              border:
+              Border.all(color: Colors.white.withOpacity(0.4), width: 1),
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
@@ -225,7 +339,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
                     color: accentColor.withOpacity(0.15),
                     shape: BoxShape.circle,
                   ),
-                  child: Center(
+                  child: const Center(
                     child: Icon(
                       Icons.chat_bubble,
                       size: 20,
@@ -249,10 +363,10 @@ class _FamilyScreenState extends State<FamilyScreen> {
                       const SizedBox(height: 2),
                       Text(
                         'Connect with everyone instantly',
-                        style: TextStyle(
+                        style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w400,
-                          color: const Color(0xFF64748B),
+                          color: Color(0xFF64748B),
                         ),
                       ),
                     ],
@@ -272,65 +386,133 @@ class _FamilyScreenState extends State<FamilyScreen> {
   }
 
   Widget _buildExistingFamilySection() {
-    final family = [
-      {'name': 'Eleanor Woods', 'role': 'Mom', 'badge': 'Owner'},
-      {'name': 'Thomas Woods', 'role': 'Dad', 'badge': null},
-      {'name': 'Uncle Arthur', 'role': 'Uncle', 'badge': null},
-      {'name': 'Sarah Bee', 'role': 'Cousin', 'badge': null},
-    ];
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _membersFuture,
+      builder: (context, snapshot) {
+        final members = snapshot.data ?? [];
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  'Existing Family',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: primaryColor,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF3EEE0),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    '${family.length}',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: primaryColor.withOpacity(0.5),
+                Row(
+                  children: [
+                    const Text(
+                      'Existing Family',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: primaryColor,
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF3EEE0),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        '${members.length}',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: primaryColor.withOpacity(0.5),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
+                const Icon(Icons.sort, size: 22, color: Colors.black54),
               ],
             ),
-            const Icon(Icons.sort, size: 22, color: Colors.black54),
+            const SizedBox(height: 16),
+            if (snapshot.connectionState == ConnectionState.waiting)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: CircularProgressIndicator(color: accentColor),
+                ),
+              )
+            else if (snapshot.hasError)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(color: const Color(0xFFF3EEE0)),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(
+                      Icons.error_outline,
+                      color: Colors.redAccent,
+                      size: 28,
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Failed to load family members',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: primaryColor,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${snapshot.error}',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (members.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(color: const Color(0xFFF3EEE0)),
+                    borderRadius: BorderRadius.circular(24),
+                  ),
+                  child: const Text(
+                    'No family members found.',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: primaryColor,
+                    ),
+                  ),
+                )
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: members.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) {
+                    final member = members[index];
+                    return _buildFamilyMemberCard(member);
+                  },
+                ),
           ],
-        ),
-        const SizedBox(height: 16),
-        ListView.separated(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: family.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final member = family[index];
-            return _buildFamilyMemberCard(member);
-          },
-        ),
-      ],
+        );
+      },
     );
   }
 
   Widget _buildFamilyMemberCard(Map<String, dynamic> member) {
+    final String photoURL = (member['photoURL'] ?? '').toString().trim();
+
     return Container(
       padding: const EdgeInsets.all(17),
       decoration: BoxDecoration(
@@ -358,8 +540,28 @@ class _FamilyScreenState extends State<FamilyScreen> {
               ),
               color: const Color(0xFFF3EEE0),
             ),
-            child: const Center(
-              child: Icon(Icons.person, size: 32, color: Colors.grey),
+            child: ClipOval(
+              child: photoURL.isNotEmpty
+                  ? Image.network(
+                photoURL,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) {
+                  return const Center(
+                    child: Icon(
+                      Icons.person,
+                      size: 32,
+                      color: Colors.grey,
+                    ),
+                  );
+                },
+              )
+                  : const Center(
+                child: Icon(
+                  Icons.person,
+                  size: 32,
+                  color: Colors.grey,
+                ),
+              ),
             ),
           ),
           const SizedBox(width: 16),
@@ -368,7 +570,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  member['name'],
+                  (member['name'] ?? 'Unknown Member').toString(),
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -376,7 +578,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
                   ),
                 ),
                 Text(
-                  member['role'].toUpperCase(),
+                  (member['role'] ?? 'MEMBER').toString().toUpperCase(),
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
@@ -389,13 +591,16 @@ class _FamilyScreenState extends State<FamilyScreen> {
           ),
           if (member['badge'] != null)
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 4,
+              ),
               decoration: BoxDecoration(
                 color: accentColor.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(999),
               ),
               child: Text(
-                member['badge'].toUpperCase(),
+                member['badge'].toString().toUpperCase(),
                 style: const TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w800,
@@ -414,35 +619,20 @@ class _FamilyScreenState extends State<FamilyScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 25, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.85),
-        border: Border(
-          top: BorderSide(color: const Color(0xFFF1F5F9)),
+        border: const Border(
+          top: BorderSide(color: Color(0xFFF1F5F9)),
         ),
       ),
-      // child: Row(
-      //   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      //   children: [
-      //     _navItem(context, Icons.calendar_today, 'Today', selected: false, onTap: () {
-      //       Navigator.of(context).push(
-      //         MaterialPageRoute(builder: (_) => const CalendarScreen()),
-      //       );
-      //     }),
-      //     _navItem(context, Icons.people, 'Family', selected: true, onTap: null),
-      //     _navItem(context, Icons.chat_bubble_outline, 'Chat', selected: false, onTap: () {
-      //       Navigator.of(context).push(
-      //         MaterialPageRoute(builder: (_) => const ChatListScreen()),
-      //       );
-      //     }),
-      //     _navItem(context, Icons.settings, 'Settings', selected: false, onTap: () {
-      //       Navigator.of(context).push(
-      //         MaterialPageRoute(builder: (_) => const SettingsScreen()),
-      //       );
-      //     }),
-      //   ],
-      // ),
     );
   }
 
-  Widget _navItem(BuildContext context, IconData icon, String label, {bool selected = false, VoidCallback? onTap}) {
+  Widget _navItem(
+      BuildContext context,
+      IconData icon,
+      String label, {
+        bool selected = false,
+        VoidCallback? onTap,
+      }) {
     return GestureDetector(
       onTap: onTap,
       child: Column(
