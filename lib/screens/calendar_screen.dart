@@ -614,7 +614,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         event.endTime,
         event.isAllDay,
       ),
-      participants: participants,
+      participants: event.participantIds,
       subtitle: event.description.isEmpty ? null : event.description,
       trailingIcon: _buildTrailingIcon(event),
       onTap: () {

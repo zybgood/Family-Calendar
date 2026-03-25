@@ -85,14 +85,13 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
         'title': updated.title,
         'description': updated.notes,
         'eventType': _mapCategoryToEventType(updated.category),
-        'participantIds': updated.participants,
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
       if (!mounted) return;
 
-      widget.onUpdate(updated);
       Navigator.of(context).pop(true);
+      return;
     } catch (e) {
       if (!mounted) return;
       _showMessage('Failed to update task: $e');
