@@ -1,9 +1,10 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../assets/figma_assets.dart';
 import '../models/task.dart';
 import 'family_selection_screen.dart';
-import 'select_members_screen.dart';
 
 class EditTaskScreen extends StatefulWidget {
   const EditTaskScreen({
@@ -31,6 +32,8 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
   late final TextEditingController _titleController;
   late final TextEditingController _notesController;
   late Task _task;
+  bool _isDeleting = false;
+  bool _isUpdating = false;
 
   @override
   void initState() {
@@ -47,20 +50,120 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
     super.dispose();
   }
 
-  void _applyUpdate() {
+  Future<void> _applyUpdate() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final taskId = _task.id;
+
+    if (user == null) {
+      if (!mounted) return;
+      _showMessage('Please sign in first.');
+      return;
+    }
+
+    if (taskId == null || taskId.isEmpty) {
+      if (!mounted) return;
+      _showMessage('Task ID not found.');
+      return;
+    }
+
+    final title = _titleController.text.trim().isEmpty
+        ? _task.title
+        : _titleController.text.trim();
+    final notes = _notesController.text.trim();
+
     final updated = _task.copyWith(
-      title: _titleController.text.trim().isEmpty
-          ? _task.title
-          : _titleController.text.trim(),
-      notes: _notesController.text.trim(),
+      title: title,
+      notes: notes,
     );
-    widget.onUpdate(updated);
-    Navigator.of(context).pop();
+
+    setState(() {
+      _isUpdating = true;
+    });
+
+    try {
+      await FirebaseFirestore.instance.collection('events').doc(taskId).update({
+        'title': updated.title,
+        'description': updated.notes,
+        'eventType': _mapCategoryToEventType(updated.category),
+        'participantIds': updated.participants,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+
+      widget.onUpdate(updated);
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      _showMessage('Failed to update task: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
+    }
   }
 
-  void _deleteTask() {
-    widget.onDelete();
-    Navigator.of(context).pop();
+  Future<void> _deleteTask() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final taskId = _task.id;
+
+    if (user == null) {
+      if (!mounted) return;
+      _showMessage('Please sign in first.');
+      return;
+    }
+
+    if (taskId == null || taskId.isEmpty) {
+      if (!mounted) return;
+      _showMessage('Task ID not found.');
+      return;
+    }
+
+    setState(() {
+      _isDeleting = true;
+    });
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('events')
+          .doc(taskId)
+          .delete();
+
+      if (!mounted) return;
+
+      Navigator.of(context).pop(true);
+      return;
+    } catch (e) {
+      if (!mounted) return;
+      _showMessage('Failed to delete task: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+      }
+    }
+  }
+
+  String _mapCategoryToEventType(String category) {
+    switch (category.toLowerCase()) {
+      case 'education':
+        return 'education';
+      case 'family':
+        return 'family';
+      case 'leisure':
+        return 'leisure';
+      default:
+        return 'family';
+    }
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   @override
@@ -76,44 +179,43 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
           ),
         ),
         child: SafeArea(
-          child: Stack(
-            children: [
-              Center(
-                child: Container(
-                  width: 430,
-                  constraints: const BoxConstraints(maxWidth: 430),
-                  child: Column(
-                    children: [
-                      _buildHeader(context),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 18),
-                              _buildTitleSection(),
-                              const SizedBox(height: 20),
-                              _buildCategoryChips(),
-                              const SizedBox(height: 22),
-                              _buildDateTimeCard(),
-                              const SizedBox(height: 20),
-                              _buildNotesSection(),
-                              const SizedBox(height: 20),
-                              _buildParticipantsSection(),
-                              const SizedBox(height: 20),
-                              _buildReminderCard(),
-                              const SizedBox(height: 20),
-                              _buildActionButtons(context),
-                            ],
-                          ),
-                        ),
+          child: Center(
+            child: Container(
+              width: 430,
+              constraints: const BoxConstraints(maxWidth: 430),
+              child: Column(
+                children: [
+                  _buildHeader(context),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
                       ),
-                    ],
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 18),
+                          _buildTitleSection(),
+                          const SizedBox(height: 20),
+                          _buildCategoryChips(),
+                          const SizedBox(height: 22),
+                          _buildDateTimeCard(),
+                          const SizedBox(height: 20),
+                          _buildNotesSection(),
+                          const SizedBox(height: 20),
+                          _buildParticipantsSection(),
+                          const SizedBox(height: 20),
+                          _buildReminderCard(),
+                          const SizedBox(height: 20),
+                          _buildActionButtons(context),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -235,7 +337,9 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
                 color: selected ? color.withOpacity(0.15) : _card,
                 borderRadius: BorderRadius.circular(999),
                 border: Border.all(
-                  color: selected ? color.withOpacity(0.25) : const Color(0xFFE5E7EB),
+                  color: selected
+                      ? color.withOpacity(0.25)
+                      : const Color(0xFFE5E7EB),
                   width: 1.2,
                 ),
               ),
@@ -358,7 +462,6 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
   }
 
   String _formatDate(DateTime date) {
-    // Example: Monday, Oct 24, 2023
     return '${_weekdayName(date.weekday)}, ${_monthName(date.month)} ${date.day}, ${date.year}';
   }
 
@@ -487,10 +590,12 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
         const SizedBox(height: 12),
         Row(
           children: _task.participants
-              .map((name) => Padding(
-                    padding: const EdgeInsets.only(right: 8.0),
-                    child: _buildMemberAvatar(name),
-                  ))
+              .map(
+                (name) => Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: _buildMemberAvatar(name),
+            ),
+          )
               .toList(),
         ),
       ],
@@ -589,6 +694,8 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
   }
 
   Widget _buildActionButtons(BuildContext context) {
+    final disableButtons = _isDeleting || _isUpdating;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -613,11 +720,11 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
               color: Colors.transparent,
               child: InkWell(
                 borderRadius: BorderRadius.circular(24),
-                onTap: _applyUpdate,
-                child: const Center(
+                onTap: disableButtons ? null : _applyUpdate,
+                child: Center(
                   child: Text(
-                    'Update Task',
-                    style: TextStyle(
+                    _isUpdating ? 'Updating...' : 'Update Task',
+                    style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
                       color: Colors.white,
@@ -630,10 +737,10 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
         ),
         const SizedBox(height: 12),
         TextButton(
-          onPressed: _deleteTask,
-          child: const Text(
-            'Delete Task',
-            style: TextStyle(
+          onPressed: disableButtons ? null : _deleteTask,
+          child: Text(
+            _isDeleting ? 'Deleting...' : 'Delete Task',
+            style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
               color: Color(0xFFEF4444),
@@ -644,3 +751,4 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
     );
   }
 }
+//wait for test

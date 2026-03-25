@@ -1,4 +1,5 @@
 class Task {
+  final String? id;
   final String title;
   final String category;
   final DateTime date;
@@ -9,6 +10,7 @@ class Task {
   final bool reminderEnabled;
 
   Task({
+    this.id,
     required this.title,
     required this.category,
     required this.date,
@@ -20,6 +22,7 @@ class Task {
   });
 
   Task copyWith({
+    String? id,
     String? title,
     String? category,
     DateTime? date,
@@ -30,6 +33,7 @@ class Task {
     bool? reminderEnabled,
   }) {
     return Task(
+      id: id ?? this.id,
       title: title ?? this.title,
       category: category ?? this.category,
       date: date ?? this.date,

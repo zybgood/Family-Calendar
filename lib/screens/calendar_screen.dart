@@ -619,6 +619,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       trailingIcon: _buildTrailingIcon(event),
       onTap: () {
         final task = Task(
+          id: event.id,
           title: event.title,
           category: event.eventType,
           date: DateTime(
