@@ -3,8 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../assets/figma_assets.dart';
-import 'family_selection_screen.dart';
+import 'select_members_screen.dart';
 
 class AddTaskScreen extends StatefulWidget {
   const AddTaskScreen({
@@ -29,28 +28,23 @@ class AddTaskScreen extends StatefulWidget {
 }
 
 class _AddTaskScreenState extends State<AddTaskScreen> {
-  static const _background = Color(0xFFFDFBF7);
-  static const _card = Color(0xFFFAF6EB);
+  static const _background = Colors.white;
+  static const _card = Color(0xFFFFF9EC);
   static const _labelColor = Color(0xFFB08F4C);
   static const _primaryColor = Color(0xFF0F172A);
-  static const _accentColor = Color(0xFFE2B736);
+  static const _accentColor = Color(0xFFFAC638);
 
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
 
   bool _reminderEnabled = true;
   bool _isSaving = false;
-  int _selectedCategoryIndex = 0;
-  List<String> _selectedMembers = [];
+  String? _familyId;
+  String _familyName = 'My Family';
+  List<SelectedTaskMember> _selectedMembers = [];
 
   DateTime? _selectedDate;
   TimeOfDay? _selectedTime;
-
-  static const _categories = [
-    {'label': 'Education', 'color': Color(0xFF3B82F6)},
-    {'label': 'Family', 'color': Color(0xFF8B5CF6)},
-    {'label': 'Leisure', 'color': Color(0xFFF97316)},
-  ];
 
   @override
   void initState() {
@@ -64,14 +58,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         widget.initialTime ?? TimeOfDay(hour: now.hour, minute: now.minute);
     _reminderEnabled = widget.initialReminderEnabled ?? true;
 
-    final initialCategory = widget.initialCategory?.trim().toLowerCase();
-    final matchedIndex = _categories.indexWhere(
-      (category) =>
-          (category['label'] as String).toLowerCase() == initialCategory,
-    );
-    if (matchedIndex >= 0) {
-      _selectedCategoryIndex = matchedIndex;
-    }
+    _initializeFamilyContext();
   }
 
   @override
@@ -126,6 +113,40 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                 primary: _accentColor,
                 onPrimary: Colors.white,
                 onSurface: _primaryColor,
+                surface: Colors.white,
+              ),
+              timePickerTheme: TimePickerThemeData(
+                backgroundColor: Colors.white,
+                dialBackgroundColor: const Color(0xFFFFF2CC),
+                dialHandColor: _accentColor,
+                hourMinuteColor: WidgetStateColor.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return _accentColor;
+                  }
+                  return const Color(0xFFFFF7E1);
+                }),
+                hourMinuteTextColor: WidgetStateColor.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return Colors.white;
+                  }
+                  return _primaryColor;
+                }),
+                dayPeriodColor: WidgetStateColor.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return _accentColor.withOpacity(0.18);
+                  }
+                  return const Color(0xFFFFF7E1);
+                }),
+                dayPeriodTextColor: WidgetStateColor.resolveWith((states) {
+                  if (states.contains(WidgetState.selected)) {
+                    return _accentColor;
+                  }
+                  return const Color(0xFF8A6D2F);
+                }),
+                entryModeIconColor: _accentColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(28),
+                ),
               ),
             ),
             child: child!,
@@ -159,22 +180,118 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     return DateTime(date.year, date.month, date.day, time.hour, time.minute);
   }
 
-  String _selectedEventType() {
-    return (_categories[_selectedCategoryIndex]['label'] as String)
-        .toLowerCase();
+  Future<void> _initializeFamilyContext() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final userDoc = await _loadCurrentUserDoc(user.uid);
+      final userData = userDoc?.data() ?? <String, dynamic>{};
+
+      final selfName =
+          (userData['fullName'] ??
+                  userData['name'] ??
+                  userData['displayName'] ??
+                  userData['username'] ??
+                  userData['email'] ??
+                  user.displayName ??
+                  'Me')
+              .toString()
+              .trim();
+      final selfAvatar =
+          (userData['photoURL'] ??
+                  userData['photoUrl'] ??
+                  userData['avatar'] ??
+                  user.photoURL ??
+                  '')
+              .toString()
+              .trim();
+
+      final familyId = await _loadCurrentFamilyId(user.uid);
+      String familyName = _familyName;
+      if (familyId != null && familyId.isNotEmpty) {
+        final familyDoc = await FirebaseFirestore.instance
+            .collection('families')
+            .doc(familyId)
+            .get();
+        familyName = (familyDoc.data()?['familyName'] ?? 'My Family')
+            .toString()
+            .trim();
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _familyId = familyId;
+        _familyName = familyName.isEmpty ? 'My Family' : familyName;
+        _selectedMembers = _mergeCurrentUserIntoMembers(
+          currentUserId: user.uid,
+          currentUserName: selfName.isEmpty ? 'Me' : selfName,
+          currentUserAvatar: selfAvatar,
+          members: _selectedMembers,
+        );
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _selectedMembers = _mergeCurrentUserIntoMembers(
+          currentUserId: user.uid,
+          currentUserName: user.displayName?.trim().isNotEmpty == true
+              ? user.displayName!.trim()
+              : 'Me',
+          currentUserAvatar: user.photoURL ?? '',
+          members: _selectedMembers,
+        );
+      });
+    }
+  }
+
+  Future<DocumentSnapshot<Map<String, dynamic>>?> _loadCurrentUserDoc(
+    String uid,
+  ) async {
+    final firestore = FirebaseFirestore.instance;
+    final directDoc = await firestore.collection('users').doc(uid).get();
+    if (directDoc.exists) {
+      return directDoc;
+    }
+
+    final query = await firestore
+        .collection('users')
+        .where('uid', isEqualTo: uid)
+        .limit(1)
+        .get();
+
+    if (query.docs.isNotEmpty) {
+      return query.docs.first;
+    }
+
+    return null;
   }
 
   Future<String?> _loadCurrentFamilyId(String uid) async {
-    final userDoc =
-    await FirebaseFirestore.instance.collection('users').doc(uid).get();
-    final userData = userDoc.data();
+    final firestore = FirebaseFirestore.instance;
+    final memberships = await firestore
+        .collection('users')
+        .doc(uid)
+        .collection('families')
+        .limit(1)
+        .get();
+
+    if (memberships.docs.isNotEmpty) {
+      final membershipData = memberships.docs.first.data();
+      final membershipFamilyId =
+          (membershipData['familyId'] ?? memberships.docs.first.id)
+              .toString()
+              .trim();
+      if (membershipFamilyId.isNotEmpty) {
+        return membershipFamilyId;
+      }
+    }
+
+    final userDoc = await _loadCurrentUserDoc(uid);
+    final userData = userDoc?.data();
 
     if (userData != null) {
-      final directKeys = [
-        'familyId',
-        'currentFamilyId',
-        'selectedFamilyId',
-      ];
+      final directKeys = ['familyId', 'currentFamilyId', 'selectedFamilyId'];
 
       for (final key in directKeys) {
         final value = userData[key];
@@ -195,47 +312,93 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       }
     }
 
-    final familyQuery = await FirebaseFirestore.instance
-        .collection('families')
-        .where('memberIds', arrayContains: uid)
+    final familyMembership = await firestore
+        .collectionGroup('members')
+        .where('uid', isEqualTo: uid)
         .limit(1)
         .get();
 
-    if (familyQuery.docs.isNotEmpty) {
-      return familyQuery.docs.first.id;
+    if (familyMembership.docs.isNotEmpty) {
+      return familyMembership.docs.first.reference.parent.parent?.id;
     }
 
     return null;
   }
 
-  Future<List<String>> _loadParticipantIds(String currentUid) async {
-    final ids = <String>{currentUid};
+  List<SelectedTaskMember> _mergeCurrentUserIntoMembers({
+    required String currentUserId,
+    required String currentUserName,
+    required String currentUserAvatar,
+    required List<SelectedTaskMember> members,
+  }) {
+    final merged = <SelectedTaskMember>[
+      SelectedTaskMember(
+        id: currentUserId,
+        name: currentUserName,
+        avatarUrl: currentUserAvatar,
+      ),
+    ];
 
-    if (_selectedMembers.isEmpty) {
-      return ids.toList();
+    for (final member in members) {
+      if (member.id == currentUserId) continue;
+      merged.add(member);
     }
 
-    final snapshot = await FirebaseFirestore.instance.collection('users').get();
+    return merged;
+  }
 
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
-      final fullName = (data['fullName'] ?? '').toString().trim();
-      final username = (data['username'] ?? '').toString().trim();
-      final email = (data['email'] ?? '').toString().trim();
-
-      final matched = _selectedMembers.any(
-            (name) =>
-        name.toLowerCase() == fullName.toLowerCase() ||
-            name.toLowerCase() == username.toLowerCase() ||
-            name.toLowerCase() == email.toLowerCase(),
-      );
-
-      if (matched) {
-        ids.add(doc.id);
-      }
-    }
-
+  List<String> _loadParticipantIds(String currentUid) {
+    final ids = _selectedMembers.map((member) => member.id).toSet();
+    ids.add(currentUid);
     return ids.toList();
+  }
+
+  Future<void> _selectMembers() async {
+    var familyId = _familyId;
+    if (familyId == null || familyId.isEmpty) {
+      await _initializeFamilyContext();
+      familyId = _familyId;
+    }
+
+    if (familyId == null || familyId.isEmpty) {
+      _showMessage('Family not found. Please join or create a family first.');
+      return;
+    }
+
+    final resolvedFamilyId = familyId;
+    if (!mounted) return;
+
+    final result = await Navigator.of(context).push<List<SelectedTaskMember>>(
+      MaterialPageRoute(
+        builder: (_) => SelectMembersScreen(
+          initialSelectedIds: _selectedMembers
+              .map((member) => member.id)
+              .toList(),
+          familyId: resolvedFamilyId,
+          familyName: _familyName,
+        ),
+      ),
+    );
+
+    if (result == null || !mounted) return;
+
+    final currentUser = FirebaseAuth.instance.currentUser;
+    setState(() {
+      _selectedMembers = currentUser == null
+          ? result
+          : _mergeCurrentUserIntoMembers(
+              currentUserId: currentUser.uid,
+              currentUserName: _selectedMembers.isNotEmpty
+                  ? _selectedMembers.first.name
+                  : (currentUser.displayName?.trim().isNotEmpty == true
+                        ? currentUser.displayName!.trim()
+                        : 'Me'),
+              currentUserAvatar: _selectedMembers.isNotEmpty
+                  ? _selectedMembers.first.avatarUrl
+                  : (currentUser.photoURL ?? ''),
+              members: result,
+            );
+    });
   }
 
   Future<void> _saveTask() async {
@@ -268,7 +431,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
 
     try {
       final familyId = await _loadCurrentFamilyId(user.uid) ?? user.uid;
-      final participantIds = await _loadParticipantIds(user.uid);
+      final participantIds = _loadParticipantIds(user.uid);
       final startTime = _buildStartDateTime();
       final endTime = startTime.add(const Duration(hours: 1));
       final now = Timestamp.now();
@@ -276,7 +439,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       await FirebaseFirestore.instance.collection('events').add({
         'title': title,
         'description': _notesController.text.trim(),
-        'eventType': _selectedEventType(),
+        'eventType': 'family',
         'familyId': familyId,
         'isAllDay': false,
         'location': '',
@@ -313,58 +476,42 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFFDFBF7), Color(0xFFFFF7E1)],
-          ),
-        ),
-        child: SafeArea(
-          child: Stack(
-            children: [
-              Center(
-                child: Container(
-                  width: 430,
-                  constraints: const BoxConstraints(maxWidth: 430),
-                  child: Column(
-                    children: [
-                      _buildHeader(context),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 18),
-                              _buildTitleInput(),
-                              const SizedBox(height: 20),
-                              _buildCategoryChips(),
-                              const SizedBox(height: 22),
-                              _buildDateTimeCard(),
-                              const SizedBox(height: 20),
-                              _buildNotesSection(),
-                              const SizedBox(height: 20),
-                              _buildParticipantsSection(),
-                              const SizedBox(height: 20),
-                              _buildReminderCard(),
-                              const SizedBox(height: 32),
-                              _buildSaveButton(context),
-                              const SizedBox(height: 36),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
+      backgroundColor: _background,
+      body: SafeArea(
+        child: Center(
+          child: SizedBox(
+            width: 430,
+            child: Column(
+              children: [
+                _buildHeader(context),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const SizedBox(height: 18),
+                        _buildTitleInput(),
+                        const SizedBox(height: 22),
+                        _buildDateTimeCard(),
+                        const SizedBox(height: 20),
+                        _buildParticipantsSection(),
+                        const SizedBox(height: 20),
+                        _buildNotesSection(),
+                        const SizedBox(height: 20),
+                        _buildReminderCard(),
+                        const SizedBox(height: 32),
+                        _buildSaveButton(context),
+                        const SizedBox(height: 36),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -440,60 +587,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           fontWeight: FontWeight.w700,
         ),
       ),
-    );
-  }
-
-  Widget _buildCategoryChips() {
-    return Row(
-      children: List.generate(_categories.length, (index) {
-        final item = _categories[index];
-        final selected = index == _selectedCategoryIndex;
-        final color = item['color'] as Color;
-
-        return Padding(
-          padding: EdgeInsets.only(right: index == _categories.length - 1 ? 0 : 8),
-          child: InkWell(
-            borderRadius: BorderRadius.circular(999),
-            onTap: () {
-              setState(() {
-                _selectedCategoryIndex = index;
-              });
-            },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: selected ? color.withOpacity(0.12) : _card,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(
-                  color: selected ? color.withOpacity(0.35) : const Color(0xFFE8E2D2),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: color,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    item['label'] as String,
-                    style: TextStyle(
-                      color: selected ? color : const Color(0xFF64748B),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      }),
     );
   }
 
@@ -639,7 +732,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text(
-              'Participants',
+              'Family Members',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w800,
@@ -647,20 +740,14 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
               ),
             ),
             TextButton(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const FamilySelectionScreen(),
-                  ),
-                );
-              },
+              onPressed: _selectMembers,
               style: TextButton.styleFrom(
                 padding: EdgeInsets.zero,
                 minimumSize: const Size(50, 32),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
               child: const Text(
-                '+ Edit Member',
+                '+ Select',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
@@ -671,50 +758,87 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        Row(
-          children: _selectedMembers.isNotEmpty
-              ? _selectedMembers
-              .map(
-                (name) => Padding(
-              padding: const EdgeInsets.only(right: 8.0),
-              child: _buildMemberAvatar(name),
+        if (_selectedMembers.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+            decoration: BoxDecoration(
+              color: _card,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Text(
+              'No family member selected yet.',
+              style: TextStyle(
+                color: Color(0xFF64748B),
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           )
-              .toList()
-              : [
-            const CircleAvatar(
-              radius: 22,
-              backgroundColor: Color(0xFFDCE1E8),
-              child: Icon(Icons.person, size: 22, color: Colors.white),
-            ),
-          ],
-        ),
+        else
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: _selectedMembers
+                .map((member) => _buildMemberChip(member))
+                .toList(),
+          ),
       ],
     );
   }
 
-  Widget _buildMemberAvatar(String name) {
-    final url = _memberAvatarUrl(name);
-    return CircleAvatar(
-      radius: 22,
-      backgroundColor: const Color(0xFFDCE1E8),
-      backgroundImage: NetworkImage(url),
+  Widget _buildMemberChip(SelectedTaskMember member) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: _card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFF2E7BF)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildMemberAvatar(member),
+          const SizedBox(width: 10),
+          Text(
+            member.name,
+            style: const TextStyle(
+              color: _primaryColor,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  String _memberAvatarUrl(String name) {
-    switch (name) {
-      case 'Mom':
-        return FigmaAssets.familyImgMom;
-      case 'Dad':
-        return FigmaAssets.familyImgDad;
-      case 'Sister':
-        return FigmaAssets.familyImgUncleArthur;
-      case 'Brother':
-        return FigmaAssets.familyImgCousinSarah;
-      default:
-        return FigmaAssets.familyImgMom;
-    }
+  Widget _buildMemberAvatar(SelectedTaskMember member) {
+    final hasAvatar = member.avatarUrl.isNotEmpty;
+    return CircleAvatar(
+      radius: 18,
+      backgroundColor: const Color(0xFFF4DFC0),
+      backgroundImage: hasAvatar ? NetworkImage(member.avatarUrl) : null,
+      child: hasAvatar
+          ? null
+          : Text(
+              _memberInitials(member.name),
+              style: const TextStyle(
+                color: Color(0xFF8A6D2F),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+    );
+  }
+
+  String _memberInitials(String name) {
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty);
+    final initials = parts.take(2).map((part) => part[0]).join();
+    return initials.isEmpty ? '?' : initials.toUpperCase();
   }
 
   Widget _buildReminderCard() {
@@ -819,7 +943,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
-                        color: Colors.white,
+                        color: Colors.black,
                       ),
                     ),
             ),

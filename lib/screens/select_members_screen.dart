@@ -1,15 +1,17 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
-import '../assets/figma_assets.dart';
 import 'family_screen.dart';
 
 class FamilyMember {
+  final String id;
   final String name;
   final String role;
   final String imageUrl;
   bool selected;
 
   FamilyMember({
+    required this.id,
     required this.name,
     required this.role,
     required this.imageUrl,
@@ -17,15 +19,27 @@ class FamilyMember {
   });
 }
 
+class SelectedTaskMember {
+  const SelectedTaskMember({
+    required this.id,
+    required this.name,
+    required this.avatarUrl,
+  });
+
+  final String id;
+  final String name;
+  final String avatarUrl;
+}
+
 class SelectMembersScreen extends StatefulWidget {
   const SelectMembersScreen({
     Key? key,
-    required this.initialSelectedNames,
+    required this.initialSelectedIds,
     required this.familyId,
     required this.familyName,
   }) : super(key: key);
 
-  final List<String> initialSelectedNames;
+  final List<String> initialSelectedIds;
   final String familyId;
   final String familyName;
 
@@ -34,44 +48,20 @@ class SelectMembersScreen extends StatefulWidget {
 }
 
 class _SelectMembersScreenState extends State<SelectMembersScreen> {
-  static const _background = Color(0xFFFDFBF7);
-  static const _card = Color(0xFFFAF6EB);
+  static const _background = Colors.white;
+  static const _card = Color(0xFFFFF9EC);
   static const _primaryColor = Color(0xFF0F172A);
   static const _labelColor = Color(0xFFB08F4C);
 
   final TextEditingController _searchController = TextEditingController();
 
-  late final List<FamilyMember> _members;
+  bool _isLoading = true;
+  List<FamilyMember> _members = [];
 
   @override
   void initState() {
     super.initState();
-    _members = [
-      FamilyMember(
-        name: 'Mom',
-        role: 'Family Lead',
-        imageUrl: FigmaAssets.familyImgMom,
-        selected: widget.initialSelectedNames.contains('Mom'),
-      ),
-      FamilyMember(
-        name: 'Dad',
-        role: 'Home Admin',
-        imageUrl: FigmaAssets.familyImgDad,
-        selected: widget.initialSelectedNames.contains('Dad'),
-      ),
-      FamilyMember(
-        name: 'Sister',
-        role: 'Helper',
-        imageUrl: FigmaAssets.familyImgUncleArthur,
-        selected: widget.initialSelectedNames.contains('Sister'),
-      ),
-      FamilyMember(
-        name: 'Brother',
-        role: 'Helper',
-        imageUrl: FigmaAssets.familyImgCousinSarah,
-        selected: widget.initialSelectedNames.contains('Brother'),
-      ),
-    ];
+    _loadMembers();
   }
 
   List<FamilyMember> get _filteredMembers {
@@ -89,67 +79,159 @@ class _SelectMembersScreenState extends State<SelectMembersScreen> {
     super.dispose();
   }
 
+  Future<Map<String, dynamic>?> _findUserByUid(String userId) async {
+    final firestore = FirebaseFirestore.instance;
+
+    final directDoc = await firestore.collection('users').doc(userId).get();
+    if (directDoc.exists) {
+      return directDoc.data();
+    }
+
+    final query = await firestore
+        .collection('users')
+        .where('uid', isEqualTo: userId)
+        .limit(1)
+        .get();
+
+    if (query.docs.isNotEmpty) {
+      return query.docs.first.data();
+    }
+
+    return null;
+  }
+
+  Future<void> _loadMembers() async {
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('families')
+          .doc(widget.familyId)
+          .collection('members')
+          .get();
+
+      final members = <FamilyMember>[];
+      for (final doc in snapshot.docs) {
+        final memberData = doc.data();
+        final userId = (memberData['uid'] ?? memberData['userId'] ?? doc.id)
+            .toString()
+            .trim();
+        if (userId.isEmpty) continue;
+
+        final userData = await _findUserByUid(userId);
+        final name =
+            (userData?['fullName'] ??
+                    userData?['name'] ??
+                    userData?['displayName'] ??
+                    memberData['nickname'] ??
+                    memberData['fullName'] ??
+                    memberData['name'] ??
+                    'Unknown Member')
+                .toString()
+                .trim();
+        final role =
+            (memberData['role'] ?? memberData['familyRole'] ?? 'member')
+                .toString()
+                .trim();
+        final photoUrl =
+            (userData?['photoURL'] ??
+                    userData?['photoUrl'] ??
+                    userData?['avatar'] ??
+                    memberData['photoURL'] ??
+                    memberData['photoUrl'] ??
+                    memberData['avatar'] ??
+                    '')
+                .toString()
+                .trim();
+
+        members.add(
+          FamilyMember(
+            id: userId,
+            name: name.isEmpty ? 'Unknown Member' : name,
+            role: role.isEmpty ? 'member' : role,
+            imageUrl: photoUrl,
+            selected: widget.initialSelectedIds.contains(userId),
+          ),
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _members = members;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _members = [];
+        _isLoading = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFFDFBF7), Color(0xFFFFF7E1)],
-          ),
-        ),
-        child: SafeArea(
-          child: Stack(
-            children: [
-              Center(
-                child: Container(
-                  width: 430,
-                  constraints: const BoxConstraints(maxWidth: 430),
-                  child: Column(
-                    children: [
-                      _buildHeader(context),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const SizedBox(height: 12),
-                              _buildSearchField(),
-                              const SizedBox(height: 18),
-                              const Text(
-                                'FAMILY CIRCLE',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: 1.2,
-                                  color: _labelColor,
-                                ),
+      backgroundColor: _background,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Center(
+              child: Container(
+                width: 430,
+                constraints: const BoxConstraints(maxWidth: 430),
+                child: Column(
+                  children: [
+                    _buildHeader(context),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 12),
+                            _buildSearchField(),
+                            const SizedBox(height: 18),
+                            const Text(
+                              'FAMILY CIRCLE',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.2,
+                                color: _labelColor,
                               ),
-                              const SizedBox(height: 12),
+                            ),
+                            const SizedBox(height: 12),
+                            if (_isLoading)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 24),
+                                child: Center(
+                                  child: CircularProgressIndicator(
+                                    color: Color(0xFFE2B736),
+                                  ),
+                                ),
+                              )
+                            else
                               ..._buildMemberList(),
-                              const SizedBox(height: 16),
-                              _buildInviteNewMemberButton(),
-                              const SizedBox(height: 90),
-                            ],
-                          ),
+                            const SizedBox(height: 16),
+                            _buildInviteNewMemberButton(),
+                            const SizedBox(height: 90),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _buildSaveButton(context),
-              ),
-            ],
-          ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: _buildSaveButton(context),
+            ),
+          ],
         ),
       ),
     );
@@ -260,8 +342,19 @@ class _SelectMembersScreenState extends State<SelectMembersScreen> {
               children: [
                 CircleAvatar(
                   radius: 22,
-                  backgroundColor: const Color(0xFFDCE1E8),
-                  backgroundImage: NetworkImage(member.imageUrl),
+                  backgroundColor: const Color(0xFFF4DFC0),
+                  backgroundImage: member.imageUrl.isNotEmpty
+                      ? NetworkImage(member.imageUrl)
+                      : null,
+                  child: member.imageUrl.isEmpty
+                      ? Text(
+                          _memberInitials(member.name),
+                          style: const TextStyle(
+                            color: Color(0xFF8A6D2F),
+                            fontWeight: FontWeight.w800,
+                          ),
+                        )
+                      : null,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -293,18 +386,16 @@ class _SelectMembersScreenState extends State<SelectMembersScreen> {
                   height: 24,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: member.selected ? const Color(0xFFFDBA3C) : Colors.white,
+                    color: member.selected
+                        ? const Color(0xFFFDBA3C)
+                        : Colors.white,
                     border: Border.all(
                       color: const Color(0xFFE5E7EB),
                       width: 1.5,
                     ),
                   ),
                   child: member.selected
-                      ? const Icon(
-                    Icons.check,
-                    size: 16,
-                    color: Colors.white,
-                  )
+                      ? const Icon(Icons.check, size: 16, color: Colors.white)
                       : null,
                 ),
               ],
@@ -333,19 +424,12 @@ class _SelectMembersScreenState extends State<SelectMembersScreen> {
         decoration: BoxDecoration(
           color: Colors.transparent,
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: const Color(0xFFD1D5DB),
-            width: 1.5,
-          ),
+          border: Border.all(color: const Color(0xFFD1D5DB), width: 1.5),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: const [
-            Icon(
-              Icons.person_add_alt_1,
-              size: 20,
-              color: Color(0xFFB08F4C),
-            ),
+            Icon(Icons.person_add_alt_1, size: 20, color: Color(0xFFB08F4C)),
             SizedBox(width: 8),
             Text(
               'Invite New Member',
@@ -393,19 +477,25 @@ class _SelectMembersScreenState extends State<SelectMembersScreen> {
             child: InkWell(
               borderRadius: BorderRadius.circular(24),
               onTap: () {
-                final selectedNames = _members
+                final selectedMembers = _members
                     .where((m) => m.selected)
-                    .map((m) => m.name)
+                    .map(
+                      (m) => SelectedTaskMember(
+                        id: m.id,
+                        name: m.name,
+                        avatarUrl: m.imageUrl,
+                      ),
+                    )
                     .toList();
-                Navigator.of(context).pop(selectedNames);
+                Navigator.of(context).pop(selectedMembers);
               },
               child: const Center(
                 child: Text(
-                  'Edit Members to Task',
+                  'Add Members to Task',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
-                    color: Colors.white,
+                    color: Colors.black,
                   ),
                 ),
               ),
@@ -414,5 +504,14 @@ class _SelectMembersScreenState extends State<SelectMembersScreen> {
         ),
       ),
     );
+  }
+
+  String _memberInitials(String name) {
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((part) => part.isNotEmpty);
+    final initials = parts.take(2).map((part) => part[0]).join();
+    return initials.isEmpty ? '?' : initials.toUpperCase();
   }
 }

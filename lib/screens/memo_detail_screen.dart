@@ -32,6 +32,7 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
   static const _background = Color(0xFFF8F7F6);
   static const _primaryColor = Color(0xFF0F172A);
   static const _accentColor = Color(0xFFFAC638);
+  static const _accentColor_new = Color(0xFFE2B736);
   static const _cardBorder = Color.fromRGBO(250, 198, 56, 0.05);
   static const _bodyText = Color(0xFF334155);
 
@@ -669,7 +670,7 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
                           style: const TextStyle(
                             fontSize: 14,
                             fontWeight: FontWeight.w800,
-                            color: _accentColor,
+                            color: _accentColor_new,
                             letterSpacing: 0.35,
                           ),
                         ),
@@ -832,7 +833,7 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w800,
-                      color: Colors.white,
+                      color: Colors.black,
                     ),
                   ),
           ),
