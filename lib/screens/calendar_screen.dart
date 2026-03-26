@@ -6,7 +6,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../assets/figma_assets.dart';
 import '../themes/app_theme.dart';
 import '../models/task.dart';
 import '../widgets/event_card.dart';
@@ -83,7 +82,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   child: Column(
                     children: [
                       const SizedBox(height: 74),
-                      _buildDateSelector(),
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: _buildDateSelector(),
+                      ),
                       const SizedBox(height: 8),
                       Expanded(child: _buildTimeline(context)),
                       const SizedBox(height: 94),
@@ -138,7 +140,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   letterSpacing: -0.5,
                 ),
               ),
-              _buildNotificationsButton(context),
+              const SizedBox(width: 40),//notification
             ],
           ),
         ),
@@ -147,16 +149,45 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Widget _buildHeaderAvatars() {
-    return Row(
-      children: [
-        _buildAvatar(FigmaAssets.imgMember1),
-        const SizedBox(width: 0),
-        _buildAvatar(FigmaAssets.imgMember2, overlap: -8),
-      ],
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return Row(
+        children: [
+          _buildAvatar(''),
+        ],
+      );
+    }
+
+    return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData || !snapshot.data!.exists) {
+          return Row(
+            children: [
+              _buildAvatar(''),
+            ],
+          );
+        }
+
+        final data = snapshot.data!.data();
+        final photoUrl = (data?['photoURL'] ?? '').toString().trim();
+
+        return Row(
+          children: [
+            _buildAvatar(photoUrl),
+          ],
+        );
+      },
     );
   }
 
   Widget _buildAvatar(String imageUrl, {double overlap = 0}) {
+    final hasImage = imageUrl.trim().isNotEmpty;
+
     return Transform.translate(
       offset: Offset(overlap, 0),
       child: Container(
@@ -174,11 +205,26 @@ class _CalendarScreenState extends State<CalendarScreen> {
           ],
         ),
         child: ClipOval(
-          child: Image.network(
+          child: hasImage
+              ? Image.network(
             imageUrl,
             fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) =>
-            const Icon(Icons.person, size: 18, color: Colors.grey),
+            errorBuilder: (_, __, ___) => Container(
+              color: const Color(0xFFF1F5F9),
+              child: const Icon(
+                Icons.person,
+                size: 18,
+                color: Colors.grey,
+              ),
+            ),
+          )
+              : Container(
+            color: const Color(0xFFF1F5F9),
+            child: const Icon(
+              Icons.person,
+              size: 18,
+              color: Colors.grey,
+            ),
           ),
         ),
       ),
@@ -349,17 +395,28 @@ class _CalendarScreenState extends State<CalendarScreen> {
             .toList()
           ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
-        return FutureBuilder<Map<String, String>>(
-          future: _loadParticipantNames(selectedEvents),
-          builder: (context, namesSnapshot) {
-            final participantNames = namesSnapshot.data ?? <String, String>{};
-//----------------------------------------------------
+        return FutureBuilder<List<dynamic>>(
+          future: Future.wait([
+            _loadParticipantNames(selectedEvents),
+            _loadParticipantAvatars(selectedEvents),
+          ]),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final participantNames =
+                (snapshot.data?[0] as Map<String, String>?) ?? <String, String>{};
+
+            final participantAvatars =
+                (snapshot.data?[1] as Map<String, String>?) ?? <String, String>{};
+
             final int startHour;
             final int endHour;
 
             if (selectedEvents.isEmpty) {
               startHour = 0;
-              endHour = 24;
+              endHour = 23;
             } else {
               final minHour = math.max(
                 0,
@@ -379,8 +436,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 ),
               );
 
-              startHour = math.min(8, minHour);
-              endHour = math.max(11, maxHour);
+              startHour = 0;
+              endHour = 24;
             }
 //------------------------------------------------------------
             final flowItems = _buildFlowItems(
@@ -460,6 +517,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     context,
                                     item.event!,
                                     participantNames,
+                                    participantAvatars,
                                   ),
                                 ),
                               );
@@ -477,6 +535,36 @@ class _CalendarScreenState extends State<CalendarScreen> {
     );
   }
 
+//-----------
+  Future<Map<String, String>> _loadParticipantAvatars(
+      List<_CalendarEvent> events,
+      ) async {
+    final ids = events.expand((e) => e.participantIds).toSet().toList();
+    if (ids.isEmpty) return {};
+
+    final result = <String, String>{};
+    final firestore = FirebaseFirestore.instance;
+
+    for (int i = 0; i < ids.length; i += 10) {
+      final batch = ids.sublist(i, math.min(i + 10, ids.length));
+
+      final snapshot = await firestore
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: batch)
+          .get();
+
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final photo = (data['photoURL'] ?? '').toString().trim();
+
+        result[doc.id] = photo;
+      }
+    }
+    return result;
+  }
+  //-------------
+
+
   List<_FlowItem> _buildFlowItems(
       BuildContext context,
       List<_CalendarEvent> events,
@@ -485,99 +573,23 @@ class _CalendarScreenState extends State<CalendarScreen> {
       int endHour,
       ) {
     final items = <_FlowItem>[];
-    final sortedEvents = [...events]..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final sortedEvents = [...events]
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
 
-    int currentMinutes = startHour * 60;
-    final endMinutes = (endHour + 1) * 60;
+    for (int hour = startHour; hour <= endHour; hour++) {
+      items.add(
+        _FlowItem.hourGap(
+          label: '${hour.toString().padLeft(2, '0')}:00',
+          height: _hourRowHeight,
+        ),
+      );
 
-    items.add(
-      _FlowItem.hourGap(
-        label: '${startHour.toString().padLeft(2, '0')}:00',
-        height: _hourRowHeight,
-      ),
-    );
-    currentMinutes += 60;
+      final hourEvents = sortedEvents
+          .where((event) => event.startTime.hour == hour)
+          .toList();
 
-    for (final event in sortedEvents) {
-      final eventStartMinutes = event.startTime.hour * 60 + event.startTime.minute;
-
-      while (currentMinutes <= eventStartMinutes) {
-        final hour = currentMinutes ~/ 60;
-        final markerMinutes = hour * 60;
-
-        if (markerMinutes < eventStartMinutes) {
-          final gapHeight =
-              ((eventStartMinutes - markerMinutes) / 60.0) * _hourRowHeight;
-
-          if (gapHeight > 0) {
-            items.add(
-              _FlowItem.minuteGap(
-                label: DateFormat('HH:mm').format(event.startTime),
-                height: gapHeight,
-              ),
-            );
-          }
-
-          currentMinutes = eventStartMinutes;
-          break;
-        } else if (markerMinutes == eventStartMinutes) {
-          currentMinutes = eventStartMinutes;
-          break;
-        } else {
-          break;
-        }
-      }
-
-      items.add(_FlowItem.event(event));
-
-      final nextHourAfterEventStart = ((eventStartMinutes ~/ 60) + 1) * 60;
-      currentMinutes = math.max(currentMinutes, nextHourAfterEventStart);
-
-      while (currentMinutes <= endMinutes &&
-          currentMinutes < (((sortedEvents.last.startTime.hour) + 1) * 60)) {
-        break;
-      }
-
-      final nextEvent = _nextEventAfter(sortedEvents, event);
-      final nextTargetMinutes = nextEvent != null
-          ? nextEvent.startTime.hour * 60 + nextEvent.startTime.minute
-          : endMinutes;
-
-      while (currentMinutes < nextTargetMinutes) {
-        final hour = currentMinutes ~/ 60;
-        final hourLabel = '${hour.toString().padLeft(2, '0')}:00';
-
-        if (currentMinutes + 60 <= nextTargetMinutes) {
-          items.add(_FlowItem.hourGap(label: hourLabel, height: _hourRowHeight));
-          currentMinutes += 60;
-        } else {
-          final gapHeight =
-              ((nextTargetMinutes - currentMinutes) / 60.0) * _hourRowHeight;
-          if (gapHeight > 0) {
-            items.add(
-              _FlowItem.minuteGap(
-                label: nextEvent != null
-                    ? DateFormat('HH:mm').format(nextEvent.startTime)
-                    : null,
-                height: gapHeight,
-              ),
-            );
-          }
-          currentMinutes = nextTargetMinutes;
-        }
-      }
-    }
-
-    int tailHour = currentMinutes ~/ 60;
-    if (currentMinutes <= endMinutes) {
-      while (tailHour <= endHour) {
-        items.add(
-          _FlowItem.hourGap(
-            label: '${tailHour.toString().padLeft(2, '0')}:00',
-            height: _hourRowHeight,
-          ),
-        );
-        tailHour += 1;
+      for (final event in hourEvents) {
+        items.add(_FlowItem.event(event));
       }
     }
 
@@ -594,10 +606,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
       BuildContext context,
       _CalendarEvent event,
       Map<String, String> participantNames,
+      Map<String, String> participantAvatars,
       ) {
     final participants = event.participantIds
         .map((id) => participantNames[id] ?? 'Member')
         .toList();
+
+    final avatarUrls = event.participantIds
+        .map((id) => participantAvatars[id] ?? '')
+        .toList();
+    debugPrint('avatarUrls: $avatarUrls');
 
     return EventCard(
       color: _eventColor(event.eventType),
@@ -608,7 +626,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         event.endTime,
         event.isAllDay,
       ),
-      participants: event.participantIds,
+      participants: avatarUrls,
       subtitle: event.description.isEmpty ? null : event.description,
       trailingIcon: _buildTrailingIcon(event),
       onTap: () {
