@@ -43,6 +43,70 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
     _notesController = TextEditingController(text: _task.notes);
   }
 
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _task.date,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+
+    if (picked != null) {
+      setState(() {
+        final duration = _task.endTime.difference(_task.startTime);
+
+        final newStart = DateTime(
+          picked.year,
+          picked.month,
+          picked.day,
+          _task.startTime.hour,
+          _task.startTime.minute,
+        );
+
+        final newEnd = newStart.add(duration);
+
+        _task = _task.copyWith(
+          date: DateTime(picked.year, picked.month, picked.day),
+          startTime: newStart,
+          endTime: newEnd,
+        );
+      });
+    }
+  }
+
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: _task.startTime.hour,
+        minute: _task.startTime.minute,
+      ),
+    );
+
+    if (picked != null) {
+      setState(() {
+        final duration = _task.endTime.difference(_task.startTime);
+
+        final newStart = DateTime(
+          _task.date.year,
+          _task.date.month,
+          _task.date.day,
+          picked.hour,
+          picked.minute,
+        );
+
+        final newEnd = newStart.add(duration);
+
+        _task = _task.copyWith(
+          startTime: newStart,
+          endTime: newEnd,
+        );
+      });
+    }
+  }
+
+
+
   @override
   void dispose() {
     _titleController.dispose();
@@ -85,6 +149,8 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
         'title': updated.title,
         'description': updated.notes,
         'eventType': _mapCategoryToEventType(updated.category),
+        'startTime': Timestamp.fromDate(updated.startTime),
+        'endTime': Timestamp.fromDate(updated.endTime),
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
@@ -385,14 +451,14 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
             icon: Icons.calendar_month,
             label: 'Date',
             value: _formatDate(_task.date),
-            onTap: () {},
+            onTap: _pickDate,
           ),
           const Divider(height: 24, thickness: 1, color: Color(0xFFEDE6D3)),
           _buildDateTimeRow(
             icon: Icons.access_time,
             label: 'Time',
             value: _formatTimeRange(_task.startTime, _task.endTime),
-            onTap: () {},
+            onTap: _pickTime,
           ),
         ],
       ),
