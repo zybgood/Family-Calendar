@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../assets/figma_assets.dart';
 
 class EventCard extends StatelessWidget {
   final Color color;
@@ -119,8 +118,7 @@ class EventCard extends StatelessWidget {
 
     return participants.asMap().entries.map((entry) {
       final index = entry.key;
-      final name = entry.value;
-      final imageUrl = _participantAvatarUrl(name);
+      final imageUrl = entry.value;
 
       return Transform.translate(
         offset: Offset(index == 0 ? 0 : -overlap, 0),
@@ -139,10 +137,26 @@ class EventCard extends StatelessWidget {
             ],
           ),
           child: ClipOval(
-            child: Image.network(
+            child: imageUrl.isNotEmpty
+                ? Image.network(
               imageUrl,
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Icon(Icons.person, size: 18, color: Colors.grey),
+              errorBuilder: (_, __, ___) => Container(
+                color: const Color(0xFFF1F5F9),
+                child: const Icon(
+                  Icons.person,
+                  size: 18,
+                  color: Colors.grey,
+                ),
+              ),
+            )
+                : Container(
+              color: const Color(0xFFF1F5F9),
+              child: const Icon(
+                Icons.person,
+                size: 18,
+                color: Colors.grey,
+              ),
             ),
           ),
         ),
@@ -150,28 +164,6 @@ class EventCard extends StatelessWidget {
     }).toList();
   }
 
-  ImageProvider? _tryNetworkImage(String url) {
-    try {
-      return NetworkImage(url);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  String _participantAvatarUrl(String name) {
-    switch (name) {
-      case 'Mom':
-        return FigmaAssets.imgParticipant1;
-      case 'Dad':
-        return FigmaAssets.imgParticipant2;
-      case 'Sister':
-        return FigmaAssets.imgParticipant3;
-      case 'Brother':
-        return FigmaAssets.imgParticipant1;
-      default:
-        return FigmaAssets.imgParticipant1;
-    }
-  }
 
   Color _fadedColorFor(Color c) {
     return c.computeLuminance() > 0.5 ? Colors.black54 : Colors.white70;

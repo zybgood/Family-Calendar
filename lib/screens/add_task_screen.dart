@@ -944,6 +944,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                         fontSize: 16,
                         fontWeight: FontWeight.w800,
                         color: Colors.black,
+
                       ),
                     ),
             ),
