@@ -237,7 +237,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   Widget _buildDateSelector() {
     return SizedBox(
-      height: 104,
+      height: 90,
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         scrollDirection: Axis.horizontal,
@@ -250,7 +250,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           return GestureDetector(
             onTap: () => setState(() => _selectedDayIndex = index),
             child: Container(
-              width: 80,
+              width: 70,
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
               decoration: BoxDecoration(
                 color:
