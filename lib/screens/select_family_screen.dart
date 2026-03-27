@@ -61,6 +61,37 @@ class _SelectFamilyScreenState extends State<SelectFamilyScreen> {
     await future;
   }
 
+  Future<String?> _loadMemberAvatar(String memberId) async {
+    final firestore = FirebaseFirestore.instance;
+
+    // Prefer user profile options first
+    final userDoc = await firestore.collection('users').doc(memberId).get();
+    if (userDoc.exists) {
+      final userData = userDoc.data() ?? {};
+      final photoURL = (userData['photoURL'] ?? userData['avatar'] ?? '').toString().trim();
+      if (photoURL.isNotEmpty) {
+        return photoURL;
+      }
+    }
+
+    // Fallback to family member record if present
+    final familyMemberDoc = await firestore
+        .collection('users')
+        .doc(memberId)
+        .collection('families')
+        .doc(memberId)
+        .get();
+
+    if (familyMemberDoc.exists) {
+      final String photoURL = (familyMemberDoc.data()?['photoURL'] ?? '').toString().trim();
+      if (photoURL.isNotEmpty) {
+        return photoURL;
+      }
+    }
+
+    return null;
+  }
+
   Future<List<_FamilyGroup>> _loadFamilies() async {
     final currentUser = FirebaseAuth.instance.currentUser;
 
@@ -108,14 +139,18 @@ class _SelectFamilyScreenState extends State<SelectFamilyScreen> {
           .collection('members')
           .get();
 
-      final List<Map<String, dynamic>> memberMaps =
-          membersSnapshot.docs.map((doc) => doc.data()).toList();
-
       final List<String> avatars = [];
 
-      for (int j = 0; j < memberMaps.length; j++) {
-        final member = memberMaps[j];
-        final String photoUrl = (member['photoURL'] ?? '').toString().trim();
+      for (int j = 0; j < membersSnapshot.docs.length; j++) {
+        final memberDoc = membersSnapshot.docs[j];
+
+        String? photoUrl = (memberDoc.data()['photoURL'] ?? '').toString().trim();
+
+        if (photoUrl.isEmpty) {
+          // try to fetch from user profile as fallback
+          final loadedAvatar = await _loadMemberAvatar(memberDoc.id);
+          photoUrl = loadedAvatar ?? '';
+        }
 
         if (photoUrl.isNotEmpty) {
           avatars.add(photoUrl);

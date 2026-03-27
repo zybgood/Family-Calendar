@@ -1,5 +1,7 @@
 import 'dart:ui';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'family_screen.dart';
@@ -30,29 +32,145 @@ class FamilySelectionScreen extends StatefulWidget {
 }
 
 class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
-  final List<_FamilyGroup> _groups = const [
-    _FamilyGroup(
-      id: 'family_001',
-      name: 'Our Cozy Home',
-      memberCount: 4,
-      avatars: [_avatar1, _avatar2, _avatar3],
-      extraCount: 1,
-    ),
-    _FamilyGroup(
-      id: 'family_002',
-      name: 'Smith Family',
-      memberCount: 6,
-      avatars: [_avatar4, _avatar5, _avatar6],
-      extraCount: 3,
-    ),
-    _FamilyGroup(
-      id: 'family_003',
-      name: 'Grandma\'s House',
-      memberCount: 3,
-      avatars: [_avatar7, _avatar8, _avatar9],
-      extraCount: 0,
-    ),
-  ];
+  late Future<List<_FamilyGroup>> _groupsFuture;
+  final Set<String> _selectedFamilyIds = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _groupsFuture = _loadFamilies();
+  }
+
+  Future<void> _refreshFamilies() async {
+    final future = _loadFamilies();
+    setState(() {
+      _groupsFuture = future;
+    });
+    await future;
+  }
+
+  Future<String?> _loadMemberAvatar(String memberId) async {
+    final firestore = FirebaseFirestore.instance;
+
+    final userDoc = await firestore.collection('users').doc(memberId).get();
+    if (userDoc.exists) {
+      final userData = userDoc.data() ?? {};
+      final photoURL = (userData['photoURL'] ?? userData['avatar'] ?? '').toString().trim();
+      if (photoURL.isNotEmpty) {
+        return photoURL;
+      }
+    }
+
+    final familyMemberDoc = await firestore
+        .collection('users')
+        .doc(memberId)
+        .collection('families')
+        .doc(memberId)
+        .get();
+
+    if (familyMemberDoc.exists) {
+      final String photoURL = (familyMemberDoc.data()?['photoURL'] ?? '').toString().trim();
+      if (photoURL.isNotEmpty) {
+        return photoURL;
+      }
+    }
+
+    return null;
+  }
+
+  Future<List<_FamilyGroup>> _loadFamilies() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (currentUser == null) {
+      throw Exception('Current user is null. Please login first.');
+    }
+
+    final String uid = currentUser.uid;
+    final FirebaseFirestore firestore = FirebaseFirestore.instance;
+
+    final membershipSnapshot = await firestore
+        .collection('users')
+        .doc(uid)
+        .collection('families')
+        .get();
+
+    if (membershipSnapshot.docs.isEmpty) {
+      return [];
+    }
+
+    final List<_FamilyGroup> result = [];
+
+    for (int i = 0; i < membershipSnapshot.docs.length; i++) {
+      final membershipData = membershipSnapshot.docs[i].data();
+
+      final String familyId =
+          (membershipData['familyId'] ?? '').toString().trim();
+
+      if (familyId.isEmpty) {
+        continue;
+      }
+
+      final familyDoc =
+          await firestore.collection('families').doc(familyId).get();
+
+      if (!familyDoc.exists) {
+        continue;
+      }
+
+      final familyData = familyDoc.data() ?? {};
+
+      final membersSnapshot = await firestore
+          .collection('families')
+          .doc(familyId)
+          .collection('members')
+          .get();
+
+      final List<String> avatars = [];
+
+      for (int j = 0; j < membersSnapshot.docs.length; j++) {
+        final memberDoc = membersSnapshot.docs[j];
+
+        String? photoUrl = (memberDoc.data()['photoURL'] ?? '').toString().trim();
+
+        if (photoUrl.isEmpty) {
+          final loadedAvatar = await _loadMemberAvatar(memberDoc.id);
+          photoUrl = loadedAvatar ?? '';
+        }
+
+        if (photoUrl.isNotEmpty) {
+          avatars.add(photoUrl);
+        } else {
+          avatars.add(_avatar1);
+        }
+
+        if (avatars.length == 3) {
+          break;
+        }
+      }
+
+      if (avatars.isEmpty) {
+        avatars.add(_avatar1);
+      }
+
+      final int memberCount = membersSnapshot.docs.length;
+      final int extraCount = memberCount > 3 ? memberCount - 3 : 0;
+
+      result.add(
+        _FamilyGroup(
+          id: familyId,
+          name: (familyData['familyName'] ??
+                  membershipData['familyName'] ??
+                  'Unnamed Family')
+              .toString(),
+          memberCount: memberCount,
+          avatars: avatars,
+          extraCount: extraCount,
+        ),
+      );
+    }
+
+    return result;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -126,39 +244,99 @@ class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
   }
 
   Widget _buildList() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: _groups
-            .map(
-              (group) => Padding(
-            padding: const EdgeInsets.only(bottom: 24),
-            child: _FamilyGroupCard(
-              group: group,
-              onSelectAll: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Selected all members from ${group.name}'),
-                    duration: const Duration(seconds: 2),
+    return FutureBuilder<List<_FamilyGroup>>(
+      future: _groupsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator(color: _accent));
+        }
+
+        if (snapshot.hasError) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: Column(
+              children: [
+                const SizedBox(height: 80),
+                const Icon(Icons.error_outline, size: 40, color: Colors.redAccent),
+                const SizedBox(height: 12),
+                Text(
+                  'Failed to load families\n${snapshot.error}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: _headline),
+                ),
+                const SizedBox(height: 16),
+                GestureDetector(
+                  onTap: _refreshFamilies,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    decoration: BoxDecoration(color: _accent, borderRadius: BorderRadius.circular(16)),
+                    child: const Text('Retry', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.black87)),
                   ),
-                );
-              },
-              onTap: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => FamilyScreen(
-                      familyId: group.id,
-                      familyName: group.name,
+                ),
+              ],
+            ),
+          );
+        }
+
+        final groups = snapshot.data ?? [];
+
+        if (groups.isEmpty) {
+          return SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: const Column(
+              children: [
+                SizedBox(height: 80),
+                Icon(Icons.groups_outlined, size: 44, color: Colors.grey),
+                SizedBox(height: 12),
+                Text('No family found', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _headline)),
+                SizedBox(height: 8),
+                Text('Create a new family or join one via invitation link', textAlign: TextAlign.center, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black54)),
+              ],
+            ),
+          );
+        }
+
+        return RefreshIndicator(
+          onRefresh: _refreshFamilies,
+          color: _accent,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: groups
+                  .map(
+                    (group) => Padding(
+                      padding: const EdgeInsets.only(bottom: 24),
+                      child: _FamilyGroupCard(
+                        group: group,
+                        selected: _selectedFamilyIds.contains(group.id),
+                        onSelectAll: () {
+                          setState(() {
+                            _selectedFamilyIds.add(group.id);
+                          });
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Selected all members from ${group.name}'),
+                              duration: const Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => FamilyScreen(familyId: group.id, familyName: group.name),
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                  ),
-                );
-              },
+                  )
+                  .toList(growable: false),
             ),
           ),
-        )
-            .toList(growable: false),
-      ),
+        );
+      },
     );
   }
 }
@@ -181,12 +359,14 @@ class _FamilyGroup {
 
 class _FamilyGroupCard extends StatelessWidget {
   final _FamilyGroup group;
+  final bool selected;
   final VoidCallback? onSelectAll;
   final VoidCallback? onTap;
 
   const _FamilyGroupCard({
     Key? key,
     required this.group,
+    this.selected = false,
     this.onSelectAll,
     this.onTap,
   }) : super(key: key);
@@ -212,13 +392,34 @@ class _FamilyGroupCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              group.name,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: _headline,
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  group.name,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: _headline,
+                  ),
+                ),
+                if (selected)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _accent.withOpacity(0.25),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Text(
+                      'Selected',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: _headline,
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 4),
             Text(
