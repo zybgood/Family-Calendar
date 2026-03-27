@@ -512,7 +512,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   bottom: item.eventBottomPadding,
                                 ),
                                 child: SizedBox(
-                                  height: _eventCardHeight,
+                                  height: item.height - item.eventTopPadding - item.eventBottomPadding,
                                   child: _buildEventCard(
                                     context,
                                     item.event!,
@@ -627,7 +627,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         event.isAllDay,
       ),
       participants: avatarUrls,
-      subtitle: event.description.isEmpty ? null : event.description,
+      subtitle: null,
       trailingIcon: _buildTrailingIcon(event),
       onTap: () {
         final task = Task(
@@ -956,9 +956,11 @@ class _FlowItem {
   }
 
   factory _FlowItem.event(_CalendarEvent event) {
+    const double cardHeight = 170.0; // ✅ 固定高度
+
     return _FlowItem._(
       type: _FlowItemType.event,
-      height: _CalendarScreenState._eventCardHeight +
+      height: cardHeight +
           _CalendarScreenState._cardTopGapFromMarker +
           _CalendarScreenState._cardBottomGap,
       leftLabel: null,

@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-
+import 'package:flutter/services.dart';
 import '../assets/figma_assets.dart';
 import '../models/task.dart';
 import 'family_selection_screen.dart';
@@ -236,13 +236,7 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFFFDFBF7), Color(0xFFFFF7E1)],
-          ),
-        ),
+        color: const Color(0xFFF1F5F9),
         child: SafeArea(
           child: Center(
             child: Container(
@@ -263,8 +257,6 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
                           const SizedBox(height: 18),
                           _buildTitleSection(),
                           const SizedBox(height: 20),
-                          _buildCategoryChips(),
-                          const SizedBox(height: 22),
                           _buildDateTimeCard(),
                           const SizedBox(height: 20),
                           _buildNotesSection(),
@@ -593,8 +585,16 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: TextField(
             controller: _notesController,
-            maxLines: null,
-            minLines: 4,
+            maxLines: 4,
+            maxLength: 120,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced, // ✅ 关键：禁止继续输入
+            onChanged: (value) {
+              if (value.length == 120) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Maximum character limit reached')),
+                );
+              }
+            },
             decoration: const InputDecoration(
               hintText: 'Add some extra details here...',
               hintStyle: TextStyle(
@@ -614,6 +614,8 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
   }
 
   Widget _buildParticipantsSection() {
+    final user = FirebaseAuth.instance.currentUser;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -653,43 +655,51 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        Row(
-          children: _task.participants
-              .map(
-                (name) => Padding(
-              padding: const EdgeInsets.only(right: 8.0),
-              child: _buildMemberAvatar(name),
-            ),
-          )
-              .toList(),
-        ),
+          Row(
+          children: [
+          if (user != null)
+          StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .snapshots(),
+          builder: (context, snapshot) {
+          String photoUrl = '';
+
+          if (snapshot.hasData && snapshot.data!.exists) {
+          final data = snapshot.data!.data();
+          photoUrl = (data?['photoURL'] ?? '').toString().trim();
+          }
+
+          return Padding(
+          padding: const EdgeInsets.only(right: 8.0),
+          child: _buildCurrentUserAvatar(photoUrl),
+          );
+          },
+          ),
+          ],
+          ),
       ],
     );
   }
 
-  Widget _buildMemberAvatar(String name) {
-    final url = _memberAvatarUrl(name);
+  Widget _buildCurrentUserAvatar(String photoUrl) {
+    final hasImage = photoUrl.isNotEmpty;
+
     return CircleAvatar(
       radius: 22,
       backgroundColor: const Color(0xFFDCE1E8),
-      backgroundImage: NetworkImage(url),
+      backgroundImage: hasImage ? NetworkImage(photoUrl) : null,
+      child: hasImage
+          ? null
+          : const Icon(
+        Icons.person,
+        color: Colors.white,
+        size: 20,
+      ),
     );
   }
 
-  String _memberAvatarUrl(String name) {
-    switch (name) {
-      case 'Mom':
-        return FigmaAssets.familyImgMom;
-      case 'Dad':
-        return FigmaAssets.familyImgDad;
-      case 'Sister':
-        return FigmaAssets.familyImgUncleArthur;
-      case 'Brother':
-        return FigmaAssets.familyImgCousinSarah;
-      default:
-        return FigmaAssets.familyImgMom;
-    }
-  }
 
   Widget _buildReminderCard() {
     return Container(
