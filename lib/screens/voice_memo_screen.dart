@@ -106,7 +106,9 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
         .where('userId', isEqualTo: user.uid)
         .snapshots()
         .map((snapshot) {
-          final memos = snapshot.docs.map(VoiceMemoRecord.fromFirestore).toList();
+          final memos = snapshot.docs
+              .map(VoiceMemoRecord.fromFirestore)
+              .toList();
           memos.sort((a, b) => b.createdAt.compareTo(a.createdAt));
           return memos;
         });
@@ -206,6 +208,7 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
         'input': rawInput,
         'inputMode': _activeInputMode,
         'timezone': DateTime.now().timeZoneName,
+        'currentDateISO': _currentDateISO(),
       });
 
       final summary = VoiceMemoSummary.fromMap(
@@ -250,6 +253,11 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
       default:
         return error.message ?? 'AI summary failed. Please try again.';
     }
+  }
+
+  String _currentDateISO() {
+    final now = DateTime.now();
+    return DateFormat('yyyy-MM-dd').format(now);
   }
 
   void _showMessage(String message) {
@@ -425,11 +433,9 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
                 }
               },
               decoration: const InputDecoration(
-                hintText: 'Type notes or tap the microphone to record your thoughts...',
-                hintStyle: TextStyle(
-                  color: Color(0xFF94A3B8),
-                  fontSize: 15,
-                ),
+                hintText:
+                    'Type notes or tap the microphone to record your thoughts...',
+                hintStyle: TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
                 border: InputBorder.none,
               ),
               style: const TextStyle(
@@ -566,9 +572,7 @@ class _MemoCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(30),
       onTap: () {
         Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => VoiceMemoDetailScreen(memo: memo),
-          ),
+          MaterialPageRoute(builder: (_) => VoiceMemoDetailScreen(memo: memo)),
         );
       },
       child: Ink(

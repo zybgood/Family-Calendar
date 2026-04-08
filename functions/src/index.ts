@@ -10,6 +10,7 @@ setGlobalOptions({maxInstances: 10});
 const openAiKeySecret = defineSecret("OPENAI_API_KEY");
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const DEFAULT_TIMEZONE = "Australia/Adelaide";
+const MAX_SUMMARY_CHARS = 150;
 
 interface DraftEvent {
   title: string;
@@ -39,6 +40,7 @@ interface SummarizeVoiceMemoRequest {
   input?: unknown;
   inputMode?: unknown;
   timezone?: unknown;
+  currentDateISO?: unknown;
 }
 
 interface VoiceMemoSummaryResponse {
@@ -54,6 +56,7 @@ interface AnalyzeMemoTaskRequest {
   title?: unknown;
   body?: unknown;
   timezone?: unknown;
+  currentDateISO?: unknown;
 }
 
 interface MemoTaskDraftResponse {
@@ -185,13 +188,124 @@ const parseVoiceMemoJson = (content: string): VoiceMemoSummaryResponse => {
 
   return {
     title,
-    summary,
-    detailedSummary,
-    keyPoints,
-    actionItems,
+    summary: limitText(summary),
+    detailedSummary: limitText(detailedSummary),
+    keyPoints: limitTextItems(keyPoints),
+    actionItems: limitTextItems(actionItems),
     category: category || "Memo",
   };
 };
+
+const isValidDateISO = (value: string): boolean => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false;
+  }
+
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+};
+
+const formatDateInTimezone = (date: Date, timezone: string): string => {
+  const build = (timeZone: string): string => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    const day = parts.find((part) => part.type === "day")?.value;
+
+    if (!year || !month || !day) {
+      throw new Error("Unable to format current date.");
+    }
+
+    return `${year}-${month}-${day}`;
+  };
+
+  try {
+    return build(timezone);
+  } catch (_) {
+    return build(DEFAULT_TIMEZONE);
+  }
+};
+
+const resolveCurrentDateISO = (value: unknown, timezone: string): string => {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (isValidDateISO(trimmed)) {
+      return trimmed;
+    }
+  }
+
+  return formatDateInTimezone(new Date(), timezone);
+};
+
+const addDaysToDateISO = (dateISO: string, days: number): string => {
+  const date = new Date(`${dateISO}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const inferRelativeDateISO = (input: string, currentDateISO: string): string | undefined => {
+  const normalized = input.toLowerCase();
+
+  if (/(后天|day after tomorrow)/i.test(normalized)) {
+    return addDaysToDateISO(currentDateISO, 2);
+  }
+
+  if (/(明天|tomorrow)/i.test(normalized)) {
+    return addDaysToDateISO(currentDateISO, 1);
+  }
+
+  if (/(今天|今日|today)/i.test(normalized)) {
+    return currentDateISO;
+  }
+
+  return undefined;
+};
+
+const normalizeMemoTaskDateISO = (
+  value: string | undefined,
+  sourceText: string,
+  currentDateISO: string
+): string | undefined => {
+  const inferredDateISO = inferRelativeDateISO(sourceText, currentDateISO);
+  if (inferredDateISO) {
+    return inferredDateISO;
+  }
+
+  const trimmed = value?.trim();
+  if (!trimmed || !isValidDateISO(trimmed)) {
+    return undefined;
+  }
+
+  const currentYear = Number(currentDateISO.slice(0, 4));
+  const draftYear = Number(trimmed.slice(0, 4));
+  const hasExplicitYear = /\b(?:19|20)\d{2}\b/.test(sourceText);
+  if (!hasExplicitYear && draftYear < currentYear) {
+    return undefined;
+  }
+
+  return trimmed;
+};
+
+const limitText = (value: string, maxChars = MAX_SUMMARY_CHARS): string => {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const chars = Array.from(normalized);
+  if (chars.length <= maxChars) {
+    return normalized;
+  }
+
+  return chars.slice(0, maxChars).join("").trimEnd();
+};
+
+const limitTextItems = (items: string[]): string[] =>
+  items
+    .map((item) => limitText(item))
+    .filter((item) => item.length > 0);
 
 const parseMemoTaskJson = (content: string): MemoTaskDraftResponse => {
   let parsed: unknown;
@@ -280,11 +394,11 @@ const buildVoiceMemoFallback = (input: string): VoiceMemoSummaryResponse => {
 
   return {
     title,
-    summary: summary || "Summary generated from the memo content.",
+    summary: limitText(summary || "Summary generated from the memo content."),
     detailedSummary:
-      detailedSummary || "Detailed summary generated from the memo content.",
-    keyPoints,
-    actionItems,
+      limitText(detailedSummary || "Detailed summary generated from the memo content."),
+    keyPoints: limitTextItems(keyPoints),
+    actionItems: limitTextItems(actionItems),
     category: detectVoiceMemoCategory(cleaned),
   };
 };
@@ -409,6 +523,7 @@ export const summarizeVoiceMemo = onCall(
       typeof data.timezone === "string" && data.timezone.trim().length > 0 ?
         data.timezone.trim() :
         DEFAULT_TIMEZONE;
+    const currentDateISO = resolveCurrentDateISO(data.currentDateISO, timezone);
 
     if (!input) {
       throw new HttpsError("invalid-argument", "input is required.");
@@ -429,6 +544,7 @@ export const summarizeVoiceMemo = onCall(
       "Infer a short memo category such as Family, Work, Health, Study, Errand, or Personal.",
       "If action items are implied, list them briefly. If none exist, return an empty array.",
       `Assume timezone ${timezone} for interpretation context only.`,
+      `The current local date is ${currentDateISO}.`,
     ].join(" ");
 
     const developerPrompt = [
@@ -436,14 +552,15 @@ export const summarizeVoiceMemo = onCall(
       "Schema:",
       "{",
       "  \"title\": \"string up to 8 words\",",
-      "  \"summary\": \"string, 1-2 sentences\",",
-      "  \"detailedSummary\": \"string, concise paragraph\",",
+      `  "summary": "string, 1-2 sentences, max ${MAX_SUMMARY_CHARS} characters",`,
+      `  "detailedSummary": "string, concise paragraph, max ${MAX_SUMMARY_CHARS} characters",`,
       "  \"keyPoints\": [\"string\"],",
       "  \"actionItems\": [\"string\"],",
       "  \"category\": \"string\"",
       "}",
       "Keep the output in English.",
       "Do not mention the schema.",
+      `Keep summary, detailedSummary, and each list item within ${MAX_SUMMARY_CHARS} characters.`,
       "Do not invent dates, people, or commitments not present in the input.",
     ].join("\n");
 
@@ -494,6 +611,7 @@ export const analyzeMemoToTask = onCall(
       typeof data.timezone === "string" && data.timezone.trim().length > 0 ?
         data.timezone.trim() :
         DEFAULT_TIMEZONE;
+    const currentDateISO = resolveCurrentDateISO(data.currentDateISO, timezone);
 
     if (!title && !body) {
       throw new HttpsError("invalid-argument", "Memo content is required.");
@@ -514,6 +632,7 @@ export const analyzeMemoToTask = onCall(
       "If a field is unclear, leave it empty instead of guessing.",
       "Allowed category values are Education, Family, Leisure.",
       `Interpret date and time references in timezone ${timezone}.`,
+      `The current local date is ${currentDateISO}.`,
     ].join(" ");
 
     const developerPrompt = [
@@ -531,6 +650,9 @@ export const analyzeMemoToTask = onCall(
       "Use memo wording where possible.",
       "If memo title is usable as task title, prefer it.",
       "Put the memo body into notes when it helps the user review context.",
+      `When the memo says today/今天/今日, use ${currentDateISO}.`,
+      `When the memo says tomorrow/明天, use ${addDaysToDateISO(currentDateISO, 1)}.`,
+      `When the memo says 后天/day after tomorrow, use ${addDaysToDateISO(currentDateISO, 2)}.`,
       "Do not invent a date or time from weak hints.",
     ].join("\n");
 
@@ -553,7 +675,12 @@ export const analyzeMemoToTask = onCall(
         throw new HttpsError("internal", "No response from AI model.");
       }
 
-      return parseMemoTaskJson(content);
+      const draft = parseMemoTaskJson(content);
+      const sourceText = `${title}\n${body}`;
+      return {
+        ...draft,
+        dateISO: normalizeMemoTaskDateISO(draft.dateISO, sourceText, currentDateISO),
+      };
     } catch (error) {
       if (error instanceof HttpsError) {
         throw error;

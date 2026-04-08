@@ -23,7 +23,9 @@ class _MemoScreenState extends State<MemoScreen> {
   static const secondaryAccent = Color(0xFFFDE047);
   static const borderColor = Color.fromRGBO(236, 91, 19, 0.05);
 
-  int _selectedNavIndex = 0;
+  final int _selectedNavIndex = 0;
+  String? _deleteActionMemoId;
+  String? _deletingMemoId;
 
   Stream<List<MemoRecord>> _memoStream() {
     final user = FirebaseAuth.instance.currentUser;
@@ -95,6 +97,210 @@ class _MemoScreenState extends State<MemoScreen> {
       return 'Yesterday';
     }
     return DateFormat('yyyy.MM.dd').format(localDate);
+  }
+
+  Future<void> _confirmAndDeleteMemo(_MemoItem item) async {
+    if (_deletingMemoId != null) {
+      return;
+    }
+
+    final confirmed = await _showDeleteMemoDialog(item);
+    if (!confirmed || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _deletingMemoId = item.id;
+    });
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('memos')
+          .doc(item.id)
+          .delete();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _deleteActionMemoId = null;
+      });
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Memo deleted.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: Text('Failed to delete memo. Please try again.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _deletingMemoId = null;
+        });
+      }
+    }
+  }
+
+  Future<bool> _showDeleteMemoDialog(_MemoItem item) async {
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return Dialog(
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 22,
+            vertical: 24,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          elevation: 10,
+          backgroundColor: Colors.white,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(22, 22, 22, 18),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: borderColor),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFFFAC638).withValues(alpha: 0.08),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 45,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppTheme.lightBackground,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Center(
+                  child: Container(
+                    width: 58,
+                    height: 58,
+                    decoration: BoxDecoration(
+                      color: AppTheme.error.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    child: const Icon(
+                      Icons.delete_outline_rounded,
+                      color: AppTheme.error,
+                      size: 31,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Delete this memo?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: primaryColor,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'This will permanently remove "${item.title}".',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.mutedText,
+                    height: 1.6,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                GestureDetector(
+                  onTap: () => Navigator.of(dialogContext).pop(true),
+                  child: Container(
+                    width: double.infinity,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        begin: Alignment.centerLeft,
+                        end: Alignment.centerRight,
+                        colors: [AppTheme.accent, AppTheme.accentDark],
+                      ),
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.accent.withValues(alpha: 0.2),
+                          blurRadius: 15,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Center(
+                      child: Text(
+                        'Delete',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppTheme.lightBackground),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      backgroundColor: AppTheme.lightBackground,
+                      foregroundColor: primaryColor,
+                    ),
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    return result ?? false;
   }
 
   String _cardDateLabel(DateTime date) {
@@ -290,7 +496,21 @@ class _MemoScreenState extends State<MemoScreen> {
             padding: const EdgeInsets.only(bottom: 16),
             child: _MemoCard(
               item: item,
+              showDeleteAction: _deleteActionMemoId == item.id,
+              isDeleting: _deletingMemoId == item.id,
+              onLongPress: () {
+                setState(() {
+                  _deleteActionMemoId = item.id;
+                });
+              },
               onTap: () {
+                if (_deleteActionMemoId == item.id) {
+                  setState(() {
+                    _deleteActionMemoId = null;
+                  });
+                  return;
+                }
+
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (_) => MemoDetailScreen(
@@ -301,6 +521,7 @@ class _MemoScreenState extends State<MemoScreen> {
                   ),
                 );
               },
+              onDeleteTap: () => _confirmAndDeleteMemo(item),
             ),
           ),
         ),
@@ -329,7 +550,7 @@ class _MemoScreenState extends State<MemoScreen> {
           shape: BoxShape.circle,
           boxShadow: [
             BoxShadow(
-              color: accentColor.withOpacity(0.3),
+              color: accentColor.withValues(alpha: 0.3),
               blurRadius: 25,
               offset: const Offset(0, 12),
             ),
@@ -415,8 +636,19 @@ class _MemoItem {
 class _MemoCard extends StatelessWidget {
   final _MemoItem item;
   final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final VoidCallback? onDeleteTap;
+  final bool showDeleteAction;
+  final bool isDeleting;
 
-  const _MemoCard({required this.item, this.onTap});
+  const _MemoCard({
+    required this.item,
+    this.onTap,
+    this.onLongPress,
+    this.onDeleteTap,
+    this.showDeleteAction = false,
+    this.isDeleting = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -427,7 +659,7 @@ class _MemoCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF000000).withOpacity(0.05),
+            color: const Color(0xFF000000).withValues(alpha: 0.05),
             blurRadius: 2,
             offset: const Offset(0, 1),
           ),
@@ -479,8 +711,67 @@ class _MemoCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       behavior: HitTestBehavior.opaque,
-      child: card,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          card,
+          Positioned(
+            top: -10,
+            right: -8,
+            child: AnimatedScale(
+              scale: showDeleteAction ? 1 : 0,
+              duration: const Duration(milliseconds: 160),
+              curve: Curves.easeOutBack,
+              child: AnimatedOpacity(
+                opacity: showDeleteAction ? 1 : 0,
+                duration: const Duration(milliseconds: 120),
+                child: IgnorePointer(
+                  ignoring: !showDeleteAction || isDeleting,
+                  child: GestureDetector(
+                    onTap: onDeleteTap,
+                    child: Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(
+                          color: AppTheme.error.withValues(alpha: 0.12),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.error.withValues(alpha: 0.16),
+                            blurRadius: 14,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Center(
+                        child: isDeleting
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppTheme.error,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.delete_outline_rounded,
+                                color: AppTheme.error,
+                                size: 23,
+                              ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

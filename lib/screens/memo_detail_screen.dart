@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
@@ -330,6 +329,7 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
         'title': memoTitle,
         'body': memoBody,
         'timezone': DateTime.now().timeZoneName,
+        'currentDateISO': _currentDateISO(),
       });
 
       final data = Map<String, dynamic>.from(result.data as Map);
@@ -375,6 +375,14 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
       default:
         return error.message ?? 'AI analysis failed. Please try again.';
     }
+  }
+
+  String _currentDateISO() {
+    final now = DateTime.now();
+    final year = now.year.toString().padLeft(4, '0');
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
   }
 
   Future<void> _toggleListening() async {
@@ -541,6 +549,7 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
 
     return Scaffold(
       backgroundColor: _background,
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           Positioned(
@@ -563,8 +572,7 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
                       child: Column(
                         children: [
                           const SizedBox(height: 89),
-                          Expanded(child: _buildContent()),
-                          const SizedBox(height: 188),
+                          Expanded(child: _buildContent(context)),
                         ],
                       ),
                     ),
@@ -680,9 +688,12 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
     );
   }
 
-  Widget _buildContent() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 0, 24, 0),
+  Widget _buildContent(BuildContext context) {
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+
+    return SingleChildScrollView(
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: EdgeInsets.fromLTRB(24, 0, 24, 188 + keyboardInset),
       child: Column(
         children: [
           const SizedBox(height: 39),
