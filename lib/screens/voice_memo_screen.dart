@@ -24,6 +24,7 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
   static const accentColor = Color(0xFFE2B736);
 
   final TextEditingController _inputController = TextEditingController();
+  final FocusNode _inputFocusNode = FocusNode();
   final stt.SpeechToText _speech = stt.SpeechToText();
   late final AnimationController _voiceBarsController;
 
@@ -136,6 +137,11 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
       _showMessage('Voice input is not available on this device.');
       return;
     }
+
+    if (!mounted) return;
+
+    _inputFocusNode.unfocus();
+    FocusScope.of(context).unfocus();
 
     final started = await _speech.listen(
       listenFor: const Duration(minutes: 5),
@@ -321,6 +327,7 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
   void dispose() {
     _voiceBarsController.dispose();
     _speech.cancel();
+    _inputFocusNode.dispose();
     _inputController.dispose();
     super.dispose();
   }
@@ -423,6 +430,7 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
             const SizedBox(height: 14),
             TextField(
               controller: _inputController,
+              focusNode: _inputFocusNode,
               maxLines: 6,
               minLines: 4,
               onChanged: (_) {

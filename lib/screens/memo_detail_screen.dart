@@ -392,12 +392,6 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
 
     if (!_isEditing) {
       _startEditing();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) {
-          return;
-        }
-        _bodyFocusNode.requestFocus();
-      });
     }
 
     if (_isListening) {
@@ -414,7 +408,21 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
       return;
     }
 
-    _listeningTarget = _titleFocusNode.hasFocus ? 'title' : 'body';
+    if (!mounted) {
+      return;
+    }
+
+    final target = _titleFocusNode.hasFocus
+        ? 'title'
+        : _bodyFocusNode.hasFocus
+        ? 'body'
+        : _voiceTarget;
+
+    _titleFocusNode.unfocus();
+    _bodyFocusNode.unfocus();
+    FocusScope.of(context).unfocus();
+
+    _listeningTarget = target;
     _voiceTarget = _listeningTarget;
     final controller = _listeningTarget == 'title'
         ? _titleController
