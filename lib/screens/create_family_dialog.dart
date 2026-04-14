@@ -101,9 +101,11 @@ class _CreateFamilyDialogState extends State<CreateFamilyDialog> {
   @override
   Widget build(BuildContext context) {
     final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
+    final screenHeight = MediaQuery.of(context).size.height;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: false,
       body: GestureDetector(
         onTap: () => Navigator.of(context).pop(),
         child: Stack(
@@ -113,155 +115,165 @@ class _CreateFamilyDialogState extends State<CreateFamilyDialog> {
               alignment: Alignment.bottomCenter,
               child: GestureDetector(
                 onTap: () {},
-                child: AnimatedPadding(
-                  duration: const Duration(milliseconds: 180),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 220),
                   curve: Curves.easeOutCubic,
-                  padding: EdgeInsets.only(bottom: keyboardInset),
-                  child: Container(
-                    width: double.infinity,
-                    height: 380,
-                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(24),
-                        topRight: Radius.circular(24),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.14),
-                          blurRadius: 16,
-                          offset: const Offset(0, -4),
-                        ),
-                      ],
+                  width: double.infinity,
+                  constraints: BoxConstraints(
+                    maxHeight: screenHeight * 0.75,
+                  ),
+                  padding: EdgeInsets.fromLTRB(
+                    24,
+                    24,
+                    24,
+                    20 + keyboardInset,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(24),
+                      topRight: Radius.circular(24),
                     ),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              'Create a family',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w900,
-                                color: Color(0xFF0F172A),
-                              ),
-                            ),
-                            InkWell(
-                              borderRadius: BorderRadius.circular(999),
-                              onTap: () => Navigator.of(context).pop(),
-                              child: Container(
-                                width: 36,
-                                height: 36,
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFF3EEE0),
-                                  borderRadius: BorderRadius.circular(999),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.14),
+                        blurRadius: 16,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text(
+                                'Create a family',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w900,
+                                  color: Color(0xFF0F172A),
                                 ),
-                                child: const Center(
-                                  child: Icon(
-                                    Icons.close,
-                                    size: 18,
-                                    color: Color(0xFF0F172A),
+                              ),
+                              InkWell(
+                                borderRadius: BorderRadius.circular(999),
+                                onTap: () => Navigator.of(context).pop(),
+                                child: Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF3EEE0),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: const Center(
+                                    child: Icon(
+                                      Icons.close,
+                                      size: 18,
+                                      color: Color(0xFF0F172A),
+                                    ),
                                   ),
                                 ),
                               ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
+                          const Text(
+                            'Family name',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF64748B),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 18),
-                        const Text(
-                          'Family name',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF64748B),
                           ),
-                        ),
-                        const SizedBox(height: 10),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF3EEE0),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: TextField(
-                            controller: _nameController,
-                            decoration: const InputDecoration(
-                              border: InputBorder.none,
-                              hintText: 'e.g. Johnson Family',
-                              hintStyle: TextStyle(
-                                color: Color(0xFF94A3B8),
-                                fontWeight: FontWeight.w500,
+                          const SizedBox(height: 10),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF3EEE0),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: TextField(
+                              controller: _nameController,
+                              textInputAction: TextInputAction.done,
+                              onSubmitted: (_) {
+                                if (!_isLoading) _createFamily();
+                              },
+                              decoration: const InputDecoration(
+                                border: InputBorder.none,
+                                hintText: 'e.g. Johnson Family',
+                                hintStyle: TextStyle(
+                                  color: Color(0xFF94A3B8),
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 24),
-                        GestureDetector(
-                          onTap: _isLoading ? null : _createFamily,
-                          child: Opacity(
-                            opacity: _isLoading ? 0.6 : 1.0,
-                            child: Container(
-                              width: double.infinity,
-                              height: 56,
-                              decoration: BoxDecoration(
-                                gradient: const LinearGradient(
-                                  begin: Alignment.centerLeft,
-                                  end: Alignment.centerRight,
-                                  colors: [
-                                    Color(0xFFFAC638),
-                                    Color(0xFFF59E0B),
+                          const SizedBox(height: 24),
+                          GestureDetector(
+                            onTap: _isLoading ? null : _createFamily,
+                            child: Opacity(
+                              opacity: _isLoading ? 0.6 : 1.0,
+                              child: Container(
+                                width: double.infinity,
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  gradient: const LinearGradient(
+                                    begin: Alignment.centerLeft,
+                                    end: Alignment.centerRight,
+                                    colors: [
+                                      Color(0xFFFAC638),
+                                      Color(0xFFF59E0B),
+                                    ],
+                                  ),
+                                  borderRadius: BorderRadius.circular(24),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFFFAC638).withOpacity(0.2),
+                                      blurRadius: 15,
+                                      offset: const Offset(0, 4),
+                                    ),
                                   ],
                                 ),
-                                borderRadius: BorderRadius.circular(24),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(
-                                      0xFFFAC638,
-                                    ).withOpacity(0.2),
-                                    blurRadius: 15,
-                                    offset: const Offset(0, 4),
-                                  ),
-                                ],
-                              ),
-                              child: Center(
-                                child: _isLoading
-                                    ? const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2.2,
-                                          valueColor:
-                                              AlwaysStoppedAnimation<Color>(
-                                                Colors.black87,
-                                              ),
-                                        ),
-                                      )
-                                    : const Text(
-                                        'Create',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.w800,
-                                          color: Colors.black87,
-                                        ),
+                                child: Center(
+                                  child: _isLoading
+                                      ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.black87,
                                       ),
+                                    ),
+                                  )
+                                      : const Text(
+                                    'Create',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w800,
+                                      color: Colors.black87,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Invitation will be sent directly using your account email (not via external link).',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF94A3B8),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'Invitation will be sent directly using your account email (not via external link).',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF94A3B8),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
