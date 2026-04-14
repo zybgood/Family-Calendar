@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../themes/app_theme.dart';
@@ -29,6 +30,7 @@ class MemoDetailScreen extends StatefulWidget {
 
 class _MemoDetailScreenState extends State<MemoDetailScreen>
     with SingleTickerProviderStateMixin {
+  static const int _maxTitleLength = 20;
   static const _background = AppTheme.pageBackground;
   static const _primaryColor = Color(0xFF0F172A);
   static const _accentColor = Color(0xFFFAC638);
@@ -52,10 +54,10 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
   bool _isAnalyzingTask = false;
   bool _speechReady = false;
   bool _isListening = false;
+  bool _isVoiceTransitioning = false;
   double _soundLevel = 0;
-  String _voiceTarget = 'body';
   String _listeningTarget = 'body';
-  String _voiceBaseText = '';
+  int _voiceSessionId = 0;
 
   bool get _hasChanges {
     return _titleController.text.trim() != _originalTitle.trim() ||
@@ -91,18 +93,9 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
   }
 
   void _handleFocusChange() {
-    if (!mounted || _isListening) {
+    if (!mounted || _isListening || _isVoiceTransitioning) {
       return;
     }
-
-    final nextTarget = _titleFocusNode.hasFocus ? 'title' : 'body';
-    if (nextTarget == _voiceTarget) {
-      return;
-    }
-
-    setState(() {
-      _voiceTarget = nextTarget;
-    });
   }
 
   Future<void> _initSpeech() async {
@@ -127,6 +120,29 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
     }
   }
 
+  bool get _isSpeechActive => _isListening || _speech.isListening;
+
+  Future<bool> _ensureSpeechReady() async {
+    if (_speechReady) {
+      return true;
+    }
+
+    await _initSpeech();
+    return _speechReady;
+  }
+
+  void _resetVoiceUiState() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isListening = false;
+      _soundLevel = 0;
+    });
+    _stopVoiceBars();
+  }
+
   Future<_SavedMemo?> _saveMemo({
     bool popAfterCreate = true,
     bool showSuccessMessage = true,
@@ -142,6 +158,11 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
 
     if (title.isEmpty && body.isEmpty) {
       _showMessage('Please enter your memo first.');
+      return null;
+    }
+
+    if (title.length > _maxTitleLength) {
+      _showMessage('Memo title cannot exceed $_maxTitleLength characters.');
       return null;
     }
 
@@ -316,6 +337,11 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
       return;
     }
 
+    if (memoBody.isEmpty) {
+      _showMessage('Detail cannot be empty.');
+      return;
+    }
+
     setState(() {
       _isAnalyzingTask = true;
     });
@@ -386,93 +412,133 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
   }
 
   Future<void> _toggleListening() async {
-    if (_isSaving || _isAnalyzingTask) {
+    if (_isSaving || _isAnalyzingTask || _isVoiceTransitioning) {
       return;
     }
 
     if (!_isEditing) {
       _startEditing();
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) {
-          return;
-        }
-        _bodyFocusNode.requestFocus();
-      });
     }
 
-    if (_isListening) {
-      await _speech.stop();
+    if (_isSpeechActive) {
+      await _stopListening();
       return;
     }
 
-    if (!_speechReady) {
-      await _initSpeech();
-    }
-
-    if (!_speechReady) {
+    final ready = await _ensureSpeechReady();
+    if (!ready) {
       _showMessage('Voice input is not available on this device.');
       return;
     }
-
-    _listeningTarget = _titleFocusNode.hasFocus ? 'title' : 'body';
-    _voiceTarget = _listeningTarget;
-    final controller = _listeningTarget == 'title'
-        ? _titleController
-        : _bodyController;
-    _voiceBaseText = controller.text;
-
-    if (_voiceBaseText.isNotEmpty &&
-        !_voiceBaseText.endsWith(' ') &&
-        !_voiceBaseText.endsWith('\n')) {
-      _voiceBaseText = '$_voiceBaseText ';
-    }
-
-    final started = await _speech.listen(
-      listenFor: const Duration(minutes: 5),
-      pauseFor: const Duration(seconds: 8),
-      listenOptions: stt.SpeechListenOptions(
-        listenMode: stt.ListenMode.dictation,
-        partialResults: true,
-      ),
-      onSoundLevelChange: (level) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _soundLevel = level;
-        });
-      },
-      onResult: (result) {
-        if (!mounted) {
-          return;
-        }
-
-        final transcript = result.recognizedWords.trim();
-        final nextText = transcript.isEmpty
-            ? _voiceBaseText.trimRight()
-            : '$_voiceBaseText$transcript';
-        final targetController = _listeningTarget == 'title'
-            ? _titleController
-            : _bodyController;
-
-        targetController.value = TextEditingValue(
-          text: nextText,
-          selection: TextSelection.collapsed(offset: nextText.length),
-        );
-      },
-    );
 
     if (!mounted) {
       return;
     }
 
+    const target = 'body';
+
+    _titleFocusNode.unfocus();
+    _bodyFocusNode.unfocus();
+    FocusScope.of(context).unfocus();
+
+    final listeningTarget = target;
+    final controller = listeningTarget == 'title'
+        ? _titleController
+        : _bodyController;
+    var voiceBaseText = controller.text;
+
+    if (voiceBaseText.isNotEmpty &&
+        !voiceBaseText.endsWith(' ') &&
+        !voiceBaseText.endsWith('\n')) {
+      voiceBaseText = '$voiceBaseText ';
+    }
+
     setState(() {
-      _isListening = started;
+      _isVoiceTransitioning = true;
+      _listeningTarget = listeningTarget;
       _soundLevel = 0;
     });
+    _startVoiceBars();
 
-    if (started) {
-      _startVoiceBars();
+    final sessionId = ++_voiceSessionId;
+
+    try {
+      await _speech.listen(
+        listenFor: const Duration(minutes: 5),
+        pauseFor: const Duration(seconds: 8),
+        listenOptions: stt.SpeechListenOptions(
+          listenMode: stt.ListenMode.dictation,
+          partialResults: true,
+        ),
+        onSoundLevelChange: (level) {
+          if (!mounted || sessionId != _voiceSessionId) {
+            return;
+          }
+          setState(() {
+            _soundLevel = level;
+          });
+        },
+        onResult: (result) {
+          if (!mounted || sessionId != _voiceSessionId) {
+            return;
+          }
+
+          final transcript = result.recognizedWords.trim();
+          final nextText = transcript.isEmpty
+              ? voiceBaseText.trimRight()
+              : '$voiceBaseText$transcript';
+
+          controller.value = TextEditingValue(
+            text: nextText,
+            selection: TextSelection.collapsed(offset: nextText.length),
+          );
+        },
+      );
+
+      if (!mounted || sessionId != _voiceSessionId) {
+        return;
+      }
+
+      setState(() {
+        _isListening = true;
+        _soundLevel = 0;
+      });
+    } catch (_) {
+      _voiceSessionId++;
+      _resetVoiceUiState();
+      _showMessage('Unable to start voice input. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isVoiceTransitioning = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _stopListening() async {
+    if (_isVoiceTransitioning) {
+      return;
+    }
+
+    setState(() {
+      _isVoiceTransitioning = true;
+    });
+
+    try {
+      if (_speech.isListening || _isListening) {
+        await _speech.stop();
+      }
+    } catch (_) {
+      // Even if the platform stop fails, keep local state recoverable.
+    } finally {
+      _voiceSessionId++;
+      _resetVoiceUiState();
+      if (mounted) {
+        setState(() {
+          _isVoiceTransitioning = false;
+        });
+      }
     }
   }
 
@@ -481,7 +547,7 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
       return;
     }
 
-    if (status == 'listening') {
+    if (status == stt.SpeechToText.listeningStatus) {
       setState(() {
         _isListening = true;
       });
@@ -489,7 +555,12 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
       return;
     }
 
-    if (status == 'done' || status == 'notListening') {
+    if (status == stt.SpeechToText.doneStatus) {
+      _voiceSessionId++;
+    }
+
+    if (status == stt.SpeechToText.doneStatus ||
+        status == stt.SpeechToText.notListeningStatus) {
       setState(() {
         _isListening = false;
         _soundLevel = 0;
@@ -503,11 +574,20 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
       return;
     }
 
-    setState(() {
-      _isListening = false;
-      _soundLevel = 0;
-    });
-    _stopVoiceBars();
+    _voiceSessionId++;
+    _resetVoiceUiState();
+
+    final errorMessage = '${error?.errorMsg ?? error}'.toLowerCase();
+    final isPermissionError =
+        errorMessage.contains('permission') ||
+        errorMessage.contains('recognizer_disabled');
+
+    if (isPermissionError) {
+      _showMessage(
+        'Microphone or speech permission is unavailable. Please check system settings.',
+      );
+      return;
+    }
 
     if (error?.permanent != true) {
       _showMessage('Voice input stopped. Please try again.');
@@ -727,11 +807,14 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
           controller: _titleController,
           focusNode: _titleFocusNode,
           maxLines: 2,
+          maxLength: _maxTitleLength,
+          inputFormatters: [LengthLimitingTextInputFormatter(_maxTitleLength)],
           textInputAction: TextInputAction.next,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             hintText: 'Memo title',
             border: InputBorder.none,
             isCollapsed: true,
+            counterText: '',
           ),
           style: const TextStyle(
             fontSize: 20,
@@ -793,7 +876,7 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (_isListening) ...[
+        if (_isListening || _isVoiceTransitioning) ...[
           _buildListeningBanner(),
           const SizedBox(height: 12),
         ],
@@ -851,15 +934,22 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
   }
 
   Widget _buildVoiceInputButton() {
-    final targetLabel = _voiceTarget == 'title' ? 'Title' : 'Content';
+    const targetLabel = 'Content';
+    final isVoiceButtonDisabled =
+        _isSaving || _isAnalyzingTask || _isVoiceTransitioning;
+    final statusLabel = _isVoiceTransitioning
+        ? (_isSpeechActive
+              ? 'Stopping voice for $targetLabel'
+              : 'Preparing voice for $targetLabel')
+        : (_isListening
+              ? 'Listening for $targetLabel'
+              : 'Voice input for $targetLabel');
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          _isListening
-              ? 'Listening for $targetLabel'
-              : 'Voice input for $targetLabel',
+          statusLabel,
           style: const TextStyle(
             color: Color(0xFF64748B),
             fontSize: 12,
@@ -867,42 +957,61 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
           ),
         ),
         const SizedBox(height: 8),
-        GestureDetector(
-          onTap: _toggleListening,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            width: 68,
-            height: 68,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: _isListening
-                    ? const [Color(0xFFF59E0B), Color(0xFFEA580C)]
-                    : const [Color(0xFFFFF6D8), Color(0xFFF7E6A8)],
-              ),
-              border: Border.all(
-                color: _isListening
-                    ? const Color(0xFFF59E0B)
-                    : const Color(0x33FAC638),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color:
-                      (_isListening
-                              ? const Color(0xFFF59E0B)
-                              : const Color(0xFFFAC638))
-                          .withValues(alpha: 0.24),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
+        IgnorePointer(
+          ignoring: isVoiceButtonDisabled,
+          child: Opacity(
+            opacity: isVoiceButtonDisabled ? 0.72 : 1,
+            child: GestureDetector(
+              onTap: _toggleListening,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                width: 68,
+                height: 68,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: _isListening
+                        ? const [Color(0xFFF59E0B), Color(0xFFEA580C)]
+                        : const [Color(0xFFFFF6D8), Color(0xFFF7E6A8)],
+                  ),
+                  border: Border.all(
+                    color: _isListening
+                        ? const Color(0xFFF59E0B)
+                        : const Color(0x33FAC638),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color:
+                          (_isListening
+                                  ? const Color(0xFFF59E0B)
+                                  : const Color(0xFFFAC638))
+                              .withValues(alpha: 0.24),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            child: Icon(
-              _isListening ? Icons.mic : Icons.mic_none_rounded,
-              color: _isListening ? Colors.white : _accentColor,
-              size: 30,
+                child: Center(
+                  child: _isVoiceTransitioning
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.4,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              _primaryColor,
+                            ),
+                          ),
+                        )
+                      : Icon(
+                          _isListening ? Icons.mic : Icons.mic_none_rounded,
+                          color: _isListening ? Colors.white : _accentColor,
+                          size: 30,
+                        ),
+                ),
+              ),
             ),
           ),
         ),
@@ -912,6 +1021,9 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
 
   Widget _buildListeningBanner() {
     final targetLabel = _listeningTarget == 'title' ? 'Title' : 'Content';
+    final statusLabel = _isVoiceTransitioning && !_isListening
+        ? 'Preparing voice for $targetLabel'
+        : 'Listening to $targetLabel';
 
     return Container(
       width: double.infinity,
@@ -939,7 +1051,7 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
           ),
           const SizedBox(width: 14),
           Text(
-            'Listening to $targetLabel',
+            statusLabel,
             style: const TextStyle(
               color: Color(0xFF334155),
               fontSize: 13,

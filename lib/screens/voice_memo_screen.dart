@@ -24,16 +24,19 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
   static const accentColor = Color(0xFFE2B736);
 
   final TextEditingController _inputController = TextEditingController();
+  final FocusNode _inputFocusNode = FocusNode();
   final stt.SpeechToText _speech = stt.SpeechToText();
   late final AnimationController _voiceBarsController;
 
   bool _isCheckingAuth = true;
   bool _speechReady = false;
   bool _isListening = false;
+  bool _isVoiceTransitioning = false;
   bool _isSubmitting = false;
   String _activeInputMode = 'text';
   User? _currentUser;
   double _soundLevel = 0;
+  int _voiceSessionId = 0;
 
   @override
   void initState() {
@@ -95,6 +98,29 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
     }
   }
 
+  bool get _isSpeechActive => _isListening || _speech.isListening;
+
+  Future<bool> _ensureSpeechReady() async {
+    if (_speechReady) {
+      return true;
+    }
+
+    await _initSpeech();
+    return _speechReady;
+  }
+
+  void _resetVoiceUiState() {
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isListening = false;
+      _soundLevel = 0;
+    });
+    _stopVoiceBars();
+  }
+
   Stream<List<VoiceMemoRecord>> _memoStream() {
     final user = _currentUser;
     if (user == null) {
@@ -115,62 +141,102 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
   }
 
   Future<void> _toggleListening() async {
-    if (_isSubmitting) return;
-
-    if (_isListening) {
-      await _speech.stop();
-      if (!mounted) return;
-      setState(() {
-        _isListening = false;
-        _soundLevel = 0;
-      });
-      _stopVoiceBars();
+    if (_isSubmitting || _isVoiceTransitioning) {
       return;
     }
 
-    if (!_speechReady) {
-      await _initSpeech();
+    if (_isSpeechActive) {
+      await _stopListening();
+      return;
     }
 
-    if (!_speechReady) {
+    final ready = await _ensureSpeechReady();
+    if (!ready) {
       _showMessage('Voice input is not available on this device.');
       return;
     }
 
-    final started = await _speech.listen(
-      listenFor: const Duration(minutes: 5),
-      pauseFor: const Duration(minutes: 5),
-      listenOptions: stt.SpeechListenOptions(
-        listenMode: stt.ListenMode.dictation,
-        partialResults: true,
-      ),
-      onSoundLevelChange: (level) {
-        if (!mounted) return;
-        setState(() {
-          _soundLevel = level;
-        });
-      },
-      onResult: (result) {
-        if (!mounted) return;
-        setState(() {
-          _activeInputMode = 'voice';
-          _inputController.text = result.recognizedWords;
-          _inputController.selection = TextSelection.collapsed(
-            offset: _inputController.text.length,
-          );
-        });
-      },
-    );
-
     if (!mounted) return;
+
+    _inputFocusNode.unfocus();
+    FocusScope.of(context).unfocus();
+
     setState(() {
-      _isListening = started;
-      if (started) {
-        _activeInputMode = 'voice';
-      }
+      _isVoiceTransitioning = true;
+      _soundLevel = 0;
     });
-    if (started) {
-      _startVoiceBars();
+    _startVoiceBars();
+
+    final sessionId = ++_voiceSessionId;
+
+    try {
+      await _speech.listen(
+        listenFor: const Duration(minutes: 5),
+        pauseFor: const Duration(minutes: 5),
+        listenOptions: stt.SpeechListenOptions(
+          listenMode: stt.ListenMode.dictation,
+          partialResults: true,
+        ),
+        onSoundLevelChange: (level) {
+          if (!mounted || sessionId != _voiceSessionId) return;
+          setState(() {
+            _soundLevel = level;
+          });
+        },
+        onResult: (result) {
+          if (!mounted || sessionId != _voiceSessionId) return;
+          setState(() {
+            _activeInputMode = 'voice';
+            _inputController.text = result.recognizedWords;
+            _inputController.selection = TextSelection.collapsed(
+              offset: _inputController.text.length,
+            );
+          });
+        },
+      );
+
+      if (!mounted || sessionId != _voiceSessionId) return;
+
+      setState(() {
+        _isListening = true;
+        _activeInputMode = 'voice';
+      });
+    } catch (_) {
+      _voiceSessionId++;
+      _resetVoiceUiState();
+      _showMessage('Unable to start voice input. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isVoiceTransitioning = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _stopListening() async {
+    if (_isVoiceTransitioning) {
+      return;
+    }
+
+    setState(() {
+      _isVoiceTransitioning = true;
+    });
+
+    try {
+      if (_speech.isListening || _isListening) {
+        await _speech.stop();
+      }
+    } catch (_) {
+      // Keep the UI recoverable even if the platform stop request fails.
+    } finally {
+      _voiceSessionId++;
+      _resetVoiceUiState();
+      if (mounted) {
+        setState(() {
+          _isVoiceTransitioning = false;
+        });
+      }
     }
   }
 
@@ -188,11 +254,8 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
       return;
     }
 
-    if (_isListening) {
-      await _speech.stop();
-      _isListening = false;
-      _soundLevel = 0;
-      _stopVoiceBars();
+    if (_isSpeechActive) {
+      await _stopListening();
     }
 
     setState(() {
@@ -276,7 +339,7 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
   void _handleSpeechStatus(String status) {
     if (!mounted) return;
 
-    if (status == 'listening') {
+    if (status == stt.SpeechToText.listeningStatus) {
       setState(() {
         _isListening = true;
       });
@@ -284,7 +347,12 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
       return;
     }
 
-    if (status == 'done' || status == 'notListening') {
+    if (status == stt.SpeechToText.doneStatus) {
+      _voiceSessionId++;
+    }
+
+    if (status == stt.SpeechToText.doneStatus ||
+        status == stt.SpeechToText.notListeningStatus) {
       setState(() {
         _isListening = false;
         _soundLevel = 0;
@@ -296,11 +364,20 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
   void _handleSpeechError(dynamic error) {
     if (!mounted) return;
 
-    setState(() {
-      _isListening = false;
-      _soundLevel = 0;
-    });
-    _stopVoiceBars();
+    _voiceSessionId++;
+    _resetVoiceUiState();
+
+    final errorMessage = '${error?.errorMsg ?? error}'.toLowerCase();
+    final isPermissionError =
+        errorMessage.contains('permission') ||
+        errorMessage.contains('recognizer_disabled');
+
+    if (isPermissionError) {
+      _showMessage(
+        'Microphone or speech permission is unavailable. Please check system settings.',
+      );
+      return;
+    }
 
     if (error?.permanent != true) {
       _showMessage('Voice input stopped. Please try again.');
@@ -321,6 +398,7 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
   void dispose() {
     _voiceBarsController.dispose();
     _speech.cancel();
+    _inputFocusNode.dispose();
     _inputController.dispose();
     super.dispose();
   }
@@ -368,7 +446,7 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
                       children: [
                         _buildComposer(),
                         const SizedBox(height: 16),
-                        if (_isListening) ...[
+                        if (_isListening || _isVoiceTransitioning) ...[
                           _ListeningBanner(
                             animation: _voiceBarsController,
                             level: _soundLevel,
@@ -423,6 +501,7 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
             const SizedBox(height: 14),
             TextField(
               controller: _inputController,
+              focusNode: _inputFocusNode,
               maxLines: 6,
               minLines: 4,
               onChanged: (_) {
@@ -451,13 +530,27 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
   }
 
   Widget _buildInputActions() {
+    final isVoiceButtonDisabled = _isSubmitting || _isVoiceTransitioning;
+    final voiceLabel = _isVoiceTransitioning
+        ? (_isSpeechActive ? 'Stopping...' : 'Preparing...')
+        : (_isListening ? 'Stop voice' : 'Voice input');
+
     return Row(
       children: [
         Expanded(
           child: OutlinedButton.icon(
-            onPressed: _isSubmitting ? null : _toggleListening,
-            icon: Icon(_isListening ? Icons.stop : Icons.mic_none),
-            label: Text(_isListening ? 'Stop voice' : 'Voice input'),
+            onPressed: isVoiceButtonDisabled ? null : _toggleListening,
+            icon: _isVoiceTransitioning
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: primaryColor,
+                    ),
+                  )
+                : Icon(_isListening ? Icons.stop : Icons.mic_none),
+            label: Text(voiceLabel),
             style: OutlinedButton.styleFrom(
               foregroundColor: primaryColor,
               side: BorderSide(
@@ -476,7 +569,9 @@ class _VoiceMemoScreenState extends State<VoiceMemoScreen>
         const SizedBox(width: 12),
         Expanded(
           child: ElevatedButton.icon(
-            onPressed: _isSubmitting ? null : _submitMemo,
+            onPressed: (_isSubmitting || _isVoiceTransitioning)
+                ? null
+                : _submitMemo,
             icon: _isSubmitting
                 ? const SizedBox(
                     width: 18,
