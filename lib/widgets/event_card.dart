@@ -51,16 +51,6 @@ class EventCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      category.toUpperCase(),
-                      style: TextStyle(
-                        color: _fadedColorFor(color),
-                        fontSize: 12,
-                        letterSpacing: 0.6,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
                       title,
                       style: TextStyle(
                         color: _primaryTextColorFor(color),

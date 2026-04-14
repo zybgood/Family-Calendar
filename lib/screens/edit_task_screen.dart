@@ -489,6 +489,8 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
           alignment: Alignment.centerLeft,
           child: TextField(
             controller: _titleController,
+            maxLength: 16,
+            maxLengthEnforcement: MaxLengthEnforcement.enforced,
             decoration: const InputDecoration(
               hintText: 'Add task title',
               hintStyle: TextStyle(

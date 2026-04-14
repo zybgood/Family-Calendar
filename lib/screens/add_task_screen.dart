@@ -512,6 +512,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: TextField(
         controller: _titleController,
+        maxLength: 16,
+        maxLengthEnforcement: MaxLengthEnforcement.enforced,
         decoration: const InputDecoration(
           hintText: 'Task title',
           hintStyle: TextStyle(

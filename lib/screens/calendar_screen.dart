@@ -941,7 +941,7 @@ class _FlowItem {
   }
 
   factory _FlowItem.event(_CalendarEvent event) {
-    const double cardHeight = 170.0;
+    const double cardHeight = 145.0;
 
     return _FlowItem._(
       type: _FlowItemType.event,
