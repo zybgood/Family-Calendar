@@ -105,7 +105,14 @@ class _MemoScreenState extends State<MemoScreen> {
     }
 
     final confirmed = await _showDeleteMemoDialog(item);
-    if (!confirmed || !mounted) {
+    if (!mounted) {
+      return;
+    }
+
+    if (!confirmed) {
+      setState(() {
+        _deleteActionMemoId = null;
+      });
       return;
     }
 

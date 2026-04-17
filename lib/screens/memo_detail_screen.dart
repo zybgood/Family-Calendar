@@ -42,6 +42,8 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
   late final TextEditingController _bodyController;
   late final FocusNode _titleFocusNode;
   late final FocusNode _bodyFocusNode;
+  late final ScrollController _bodyScrollController;
+  late final ScrollController _readOnlyBodyScrollController;
   final stt.SpeechToText _speech = stt.SpeechToText();
   late final AnimationController _voiceBarsController;
 
@@ -75,9 +77,11 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
     _titleController = TextEditingController(text: widget.title)
       ..addListener(_handleFieldChanged);
     _bodyController = TextEditingController(text: widget.body)
-      ..addListener(_handleFieldChanged);
+      ..addListener(_handleBodyChanged);
     _titleFocusNode = FocusNode()..addListener(_handleFocusChange);
     _bodyFocusNode = FocusNode()..addListener(_handleFocusChange);
+    _bodyScrollController = ScrollController();
+    _readOnlyBodyScrollController = ScrollController();
     _voiceBarsController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -92,9 +96,22 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
     setState(() {});
   }
 
+  void _handleBodyChanged() {
+    if (!mounted || !_isEditing) {
+      return;
+    }
+
+    _scheduleBodyScrollToLatest();
+    setState(() {});
+  }
+
   void _handleFocusChange() {
     if (!mounted || _isListening || _isVoiceTransitioning) {
       return;
+    }
+
+    if (_bodyFocusNode.hasFocus) {
+      _scheduleBodyScrollToLatest();
     }
   }
 
@@ -138,6 +155,52 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
 
     setState(() {
       _isListening = false;
+      _soundLevel = 0;
+    });
+    _stopVoiceBars();
+  }
+
+  void _scheduleBodyScrollToLatest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_bodyScrollController.hasClients) {
+        return;
+      }
+
+      final selection = _bodyController.selection;
+      final caretNearEnd =
+          !selection.isValid ||
+          selection.extentOffset >= _bodyController.text.length - 1;
+
+      if (!_isListening && !_bodyFocusNode.hasFocus) {
+        return;
+      }
+
+      if (!caretNearEnd) {
+        return;
+      }
+
+      _bodyScrollController.jumpTo(
+        _bodyScrollController.position.maxScrollExtent,
+      );
+    });
+  }
+
+  Future<void> _stopVoiceInputForNavigation() async {
+    _voiceSessionId++;
+
+    try {
+      await _speech.cancel();
+    } catch (_) {
+      // Keep the page responsive even if the plugin cannot cancel cleanly.
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _isListening = false;
+      _isVoiceTransitioning = false;
       _soundLevel = 0;
     });
     _stopVoiceBars();
@@ -281,6 +344,9 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
   }
 
   void _cancelEditing() {
+    _voiceSessionId++;
+    _speech.cancel();
+    _resetVoiceUiState();
     _titleController.text = _originalTitle;
     _bodyController.text = _originalBody;
     setState(() {
@@ -347,6 +413,8 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
     });
 
     try {
+      await _stopVoiceInputForNavigation();
+
       final callable = FirebaseFunctions.instanceFor(
         region: 'australia-southeast1',
       ).httpsCallable('analyzeMemoToTask');
@@ -613,11 +681,13 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
     _bodyFocusNode
       ..removeListener(_handleFocusChange)
       ..dispose();
+    _bodyScrollController.dispose();
+    _readOnlyBodyScrollController.dispose();
     _titleController
       ..removeListener(_handleFieldChanged)
       ..dispose();
     _bodyController
-      ..removeListener(_handleFieldChanged)
+      ..removeListener(_handleBodyChanged)
       ..dispose();
     super.dispose();
   }
@@ -628,7 +698,6 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
 
     return Scaffold(
       backgroundColor: _background,
-      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           Positioned(
@@ -770,35 +839,60 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
   Widget _buildContent(BuildContext context) {
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
 
-    return SingleChildScrollView(
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: EdgeInsets.fromLTRB(24, 0, 24, 188 + keyboardInset),
-      child: Column(
-        children: [
-          const SizedBox(height: 39),
-          Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: _cardBorder),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFFFAC638).withValues(alpha: 0.05),
-                  blurRadius: 20,
-                  offset: const Offset(0, 4),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final detailViewportHeight = _detailViewportHeight(
+          constraints.maxHeight,
+        );
+
+        return SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.manual,
+          padding: EdgeInsets.fromLTRB(24, 0, 24, 188 + keyboardInset),
+          child: Column(
+            children: [
+              const SizedBox(height: 39),
+              Container(
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: _cardBorder),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFFAC638).withValues(alpha: 0.05),
+                      blurRadius: 20,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            padding: const EdgeInsets.fromLTRB(25, 21, 25, 25),
-            child: _isEditing ? _buildEditableBody() : _buildReadOnlyBody(),
+                padding: const EdgeInsets.fromLTRB(25, 21, 25, 25),
+                child: _isEditing
+                    ? _buildEditableBody(detailViewportHeight)
+                    : _buildReadOnlyBody(detailViewportHeight),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildEditableBody() {
+  double _detailViewportHeight(double availableHeight) {
+    final reservedHeight = (_isListening || _isVoiceTransitioning)
+        ? 280.0
+        : 228.0;
+    final calculatedHeight = availableHeight - reservedHeight;
+
+    if (calculatedHeight < 180) {
+      return 180;
+    }
+    if (calculatedHeight > 360) {
+      return 360;
+    }
+    return calculatedHeight;
+  }
+
+  Widget _buildEditableBody(double detailViewportHeight) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -823,28 +917,41 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
           ),
         ),
         const SizedBox(height: 16),
-        TextField(
-          controller: _bodyController,
-          focusNode: _bodyFocusNode,
-          maxLines: 14,
-          minLines: 10,
-          decoration: const InputDecoration(
-            hintText: 'Write your memo here...',
-            border: InputBorder.none,
-            isCollapsed: true,
-          ),
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w400,
-            color: _bodyText,
-            height: 1.6,
+        SizedBox(
+          height: detailViewportHeight,
+          child: Scrollbar(
+            controller: _bodyScrollController,
+            thumbVisibility: true,
+            radius: const Radius.circular(999),
+            child: TextField(
+              controller: _bodyController,
+              focusNode: _bodyFocusNode,
+              scrollController: _bodyScrollController,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.newline,
+              minLines: null,
+              maxLines: null,
+              expands: true,
+              scrollPadding: const EdgeInsets.only(bottom: 220),
+              decoration: const InputDecoration(
+                hintText: 'Write your memo here...',
+                border: InputBorder.none,
+                isCollapsed: true,
+              ),
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
+                color: _bodyText,
+                height: 1.6,
+              ),
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildReadOnlyBody() {
+  Widget _buildReadOnlyBody(double detailViewportHeight) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -858,13 +965,25 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
           ),
         ),
         const SizedBox(height: 16),
-        Text(
-          _originalBody,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w400,
-            color: _bodyText,
-            height: 1.6,
+        SizedBox(
+          height: detailViewportHeight,
+          child: Scrollbar(
+            controller: _readOnlyBodyScrollController,
+            thumbVisibility: _originalBody.trim().isNotEmpty,
+            radius: const Radius.circular(999),
+            child: SingleChildScrollView(
+              controller: _readOnlyBodyScrollController,
+              padding: const EdgeInsets.only(right: 6),
+              child: Text(
+                _originalBody,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w400,
+                  color: _bodyText,
+                  height: 1.6,
+                ),
+              ),
+            ),
           ),
         ),
       ],
