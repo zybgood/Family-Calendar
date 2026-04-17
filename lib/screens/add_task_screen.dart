@@ -17,7 +17,6 @@ class AddTaskScreen extends StatefulWidget {
     this.initialDate,
     this.initialTime,
     this.initialCategory,
-    this.initialReminderEnabled,
   }) : super(key: key);
 
   final String? initialTitle;
@@ -25,7 +24,6 @@ class AddTaskScreen extends StatefulWidget {
   final DateTime? initialDate;
   final TimeOfDay? initialTime;
   final String? initialCategory;
-  final bool? initialReminderEnabled;
 
   @override
   State<AddTaskScreen> createState() => _AddTaskScreenState();
@@ -41,7 +39,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
 
-  bool _reminderEnabled = true;
   bool _isSaving = false;
   bool _isLoadingDefaultParticipants = true;
   int _selectedCategoryIndex = 0;
@@ -69,7 +66,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         widget.initialDate ?? DateTime(now.year, now.month, now.day);
     _selectedTime =
         widget.initialTime ?? TimeOfDay(hour: now.hour, minute: now.minute);
-    _reminderEnabled = widget.initialReminderEnabled ?? true;
 
     final initialCategory = widget.initialCategory?.trim().toLowerCase();
     final matchedIndex = _categories.indexWhere(
@@ -353,7 +349,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         'isAllDay': false,
         'location': '',
         'participantIds': participantIds,
-        'reminderMinutes': _reminderEnabled ? 15 : 0,
+        'reminderMinutes': 0,
         'repeatType': 'none',
         'startTime': Timestamp.fromDate(startTime),
         'endTime': Timestamp.fromDate(endTime),
@@ -458,8 +454,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
                                 const SizedBox(height: 20),
                                 _buildParticipantsSection(),
                                 const SizedBox(height: 20),
-                                _buildReminderCard(),
-                                const SizedBox(height: 32),
                                 _buildSaveButton(context),
                                 const SizedBox(height: 36),
                               ],
@@ -512,9 +506,8 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: TextField(
         controller: _titleController,
-        maxLength: 16,
-        maxLengthEnforcement: MaxLengthEnforcement.enforced,
         decoration: const InputDecoration(
+          counterText: '',
           hintText: 'Task title',
           hintStyle: TextStyle(
             color: Color(0xFF94A3B8),
@@ -650,18 +643,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
             controller: _notesController,
             minLines: 4,
             maxLines: 4,
-            maxLength: 120,
-            maxLengthEnforcement: MaxLengthEnforcement.enforced,
-            onChanged: (value) {
-              if (value.length == 120) {
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Maximum character limit reached'),
-                  ),
-                );
-              }
-            },
             decoration: const InputDecoration(
               hintText: 'Add some extra details here...',
               hintStyle: TextStyle(
@@ -732,69 +713,6 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     );
   }
 
-  Widget _buildReminderCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: _card,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: const Icon(Icons.notifications, color: _accentColor),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
-                  'Reminders',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: _primaryColor,
-                  ),
-                ),
-                SizedBox(height: 4),
-                Text(
-                  '15 minutes before',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            value: _reminderEnabled,
-            activeColor: _accentColor,
-            onChanged: (value) {
-              setState(() {
-                _reminderEnabled = value;
-              });
-            },
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildSaveButton(BuildContext context) {
     return SizedBox(

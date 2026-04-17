@@ -373,7 +373,6 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
             initialDate: draft.date,
             initialTime: draft.time,
             initialCategory: draft.category,
-            initialReminderEnabled: draft.reminderEnabled,
           ),
         ),
       );
@@ -1125,7 +1124,6 @@ class _MemoTaskDraft {
     required this.category,
     required this.date,
     required this.time,
-    required this.reminderEnabled,
   });
 
   final String title;
@@ -1133,7 +1131,6 @@ class _MemoTaskDraft {
   final String? category;
   final DateTime? date;
   final TimeOfDay? time;
-  final bool reminderEnabled;
 
   factory _MemoTaskDraft.fromMap(Map<String, dynamic> map) {
     final date = _parseDate(map['dateISO'] as String?);
@@ -1145,7 +1142,6 @@ class _MemoTaskDraft {
       category: (map['category'] as String?)?.trim(),
       date: date,
       time: time,
-      reminderEnabled: map['reminderEnabled'] as bool? ?? true,
     );
   }
 
