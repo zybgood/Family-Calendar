@@ -312,6 +312,39 @@ class _MemoScreenState extends State<MemoScreen> {
     return result ?? false;
   }
 
+  Future<void> _openMemoDetail(_MemoItem item) async {
+    if (_deleteActionMemoId == item.id) {
+      setState(() {
+        _deleteActionMemoId = null;
+      });
+      return;
+    }
+
+    if (_deleteActionMemoId != null) {
+      setState(() {
+        _deleteActionMemoId = null;
+      });
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MemoDetailScreen(
+          memoId: item.id,
+          title: item.title,
+          body: item.body,
+        ),
+      ),
+    );
+
+    if (!mounted || _deleteActionMemoId == null) {
+      return;
+    }
+
+    setState(() {
+      _deleteActionMemoId = null;
+    });
+  }
+
   String _cardDateLabel(DateTime date) {
     final localDate = date.toLocal();
     final now = DateTime.now();
@@ -513,22 +546,7 @@ class _MemoScreenState extends State<MemoScreen> {
                 });
               },
               onTap: () {
-                if (_deleteActionMemoId == item.id) {
-                  setState(() {
-                    _deleteActionMemoId = null;
-                  });
-                  return;
-                }
-
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => MemoDetailScreen(
-                      memoId: item.id,
-                      title: item.title,
-                      body: item.body,
-                    ),
-                  ),
-                );
+                _openMemoDetail(item);
               },
               onDeleteTap: () => _confirmAndDeleteMemo(item),
             ),
