@@ -51,16 +51,6 @@ class EventCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      category.toUpperCase(),
-                      style: TextStyle(
-                        color: _fadedColorFor(color),
-                        fontSize: 12,
-                        letterSpacing: 0.6,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
                       title,
                       style: TextStyle(
                         color: _primaryTextColorFor(color),
@@ -116,32 +106,46 @@ class EventCard extends StatelessWidget {
     const double size = 32;
     const double overlap = 10;
 
-    return participants.asMap().entries.map((entry) {
-      final index = entry.key;
-      final imageUrl = entry.value;
+    final visibleParticipants = participants.take(2).toList();
+    final remainingCount = participants.length - visibleParticipants.length;
 
-      return Transform.translate(
-        offset: Offset(index == 0 ? 0 : -overlap, 0),
-        child: Container(
-          width: size,
-          height: size,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.08),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: ClipOval(
-            child: imageUrl.isNotEmpty
-                ? Image.network(
-              imageUrl,
-              fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => Container(
+    final List<Widget> widgets = [];
+
+    for (int i = 0; i < visibleParticipants.length; i++) {
+      final imageUrl = visibleParticipants[i];
+
+      widgets.add(
+        Transform.translate(
+          offset: Offset(i == 0 ? 0 : -overlap, 0),
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: Border.all(color: Colors.white, width: 2),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: ClipOval(
+              child: imageUrl.isNotEmpty
+                  ? Image.network(
+                imageUrl,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => Container(
+                  color: const Color(0xFFF1F5F9),
+                  child: const Icon(
+                    Icons.person,
+                    size: 18,
+                    color: Colors.grey,
+                  ),
+                ),
+              )
+                  : Container(
                 color: const Color(0xFFF1F5F9),
                 child: const Icon(
                   Icons.person,
@@ -149,19 +153,29 @@ class EventCard extends StatelessWidget {
                   color: Colors.grey,
                 ),
               ),
-            )
-                : Container(
-              color: const Color(0xFFF1F5F9),
-              child: const Icon(
-                Icons.person,
-                size: 18,
-                color: Colors.grey,
-              ),
             ),
           ),
         ),
       );
-    }).toList();
+    }
+
+    if (remainingCount > 0) {
+      widgets.add(
+        Transform.translate(
+          offset: const Offset(-6, 0),
+          child: Text(
+            '+$remainingCount',
+            style: TextStyle(
+              color: _fadedColorFor(color),
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return widgets;
   }
 
 

@@ -22,6 +22,7 @@ class _MemoScreenState extends State<MemoScreen> {
   static const accentColor = Color(0xFFE2B736);
   static const secondaryAccent = Color(0xFFFDE047);
   static const borderColor = Color.fromRGBO(236, 91, 19, 0.05);
+  static const int _cardTitleLimit = 20;
 
   final int _selectedNavIndex = 0;
   String? _deleteActionMemoId;
@@ -67,7 +68,8 @@ class _MemoScreenState extends State<MemoScreen> {
       currentItems.add(
         _MemoItem(
           id: memo.id,
-          title: memo.displayTitle,
+          title: memo.title,
+          displayTitle: memo.displayTitle,
           dateLabel: _cardDateLabel(memo.createdAt),
           body: memo.body,
         ),
@@ -105,7 +107,14 @@ class _MemoScreenState extends State<MemoScreen> {
     }
 
     final confirmed = await _showDeleteMemoDialog(item);
-    if (!confirmed || !mounted) {
+    if (!mounted) {
+      return;
+    }
+
+    if (!confirmed) {
+      setState(() {
+        _deleteActionMemoId = null;
+      });
       return;
     }
 
@@ -565,6 +574,8 @@ class _MemoScreenState extends State<MemoScreen> {
 }
 
 class MemoRecord {
+  static const int _cardTitleLimit = _MemoScreenState._cardTitleLimit;
+
   const MemoRecord({
     required this.id,
     required this.title,
@@ -580,7 +591,7 @@ class MemoRecord {
   String get displayTitle {
     final trimmedTitle = title.trim();
     if (trimmedTitle.isNotEmpty) {
-      return trimmedTitle;
+      return _truncateForCard(trimmedTitle);
     }
 
     final trimmedBody = body.trim();
@@ -589,10 +600,17 @@ class MemoRecord {
     }
 
     final firstLine = trimmedBody.split('\n').first.trim();
-    if (firstLine.length <= 28) {
+    if (firstLine.length <= _cardTitleLimit) {
       return firstLine;
     }
-    return '${firstLine.substring(0, 28).trimRight()}...';
+    return firstLine.substring(0, _cardTitleLimit).trimRight();
+  }
+
+  static String _truncateForCard(String value) {
+    if (value.length <= _cardTitleLimit) {
+      return value;
+    }
+    return '${value.substring(0, _cardTitleLimit).trimRight()}...';
   }
 
   factory MemoRecord.fromFirestore(
@@ -622,12 +640,14 @@ class _MemoSection {
 class _MemoItem {
   final String id;
   final String title;
+  final String displayTitle;
   final String dateLabel;
   final String body;
 
   const _MemoItem({
     required this.id,
     required this.title,
+    required this.displayTitle,
     required this.dateLabel,
     required this.body,
   });
@@ -674,7 +694,9 @@ class _MemoCard extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  item.title,
+                  item.displayTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,

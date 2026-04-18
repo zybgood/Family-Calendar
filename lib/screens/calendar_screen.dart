@@ -663,6 +663,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return events[index + 1];
   }
 
+  String _ellipsisTitle(String text) {
+    final value = text.trim();
+    if (value.length <= 12) return value;
+    return '${value.substring(0, 12)}...';
+  }
+
   Widget _buildEventCard(
     BuildContext context,
     _CalendarEvent event,
@@ -682,7 +688,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return EventCard(
       color: _eventColor(event.eventType),
       category: event.eventType,
-      title: event.title,
+      title: _ellipsisTitle(event.title),
       timeRange: _formatTimeRange(
         event.startTime,
         event.endTime,
@@ -694,7 +700,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       onTap: () {
         final task = Task(
           id: event.id,
-          title: event.title,
+          title: _ellipsisTitle(event.title),
           category: event.eventType,
           date: DateTime(
             event.startTime.year,
@@ -705,7 +711,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           endTime: event.endTime,
           notes: event.description,
           participants: participants,
-          reminderEnabled: event.reminderMinutes > 0,
+          reminderEnabled: false,
         );
 
         Navigator.of(context).push(
@@ -941,7 +947,7 @@ class _FlowItem {
   }
 
   factory _FlowItem.event(_CalendarEvent event) {
-    const double cardHeight = 170.0;
+    const double cardHeight = 145.0;
 
     return _FlowItem._(
       type: _FlowItemType.event,

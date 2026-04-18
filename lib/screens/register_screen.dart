@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'calendar_screen.dart';
 import 'login_screen.dart';
+import 'memo_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({Key? key}) : super(key: key);
@@ -23,6 +24,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   static const placeholderColor = Color(0xFF94A3B8);
   static const fieldBackgroundColor = bgColor;
   static const fieldBorderColor = Color(0xFFDDE2E7);
+  static const String defaultAvatarUrl =
+      'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2Fbaby-cute-cat-png.png?alt=media&token=9722de02-f504-413c-9178-7e9dbd922a29';
 
   final fullNameController = TextEditingController();
   final emailController = TextEditingController();
@@ -103,13 +106,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
 
       await user.updateDisplayName(fullName);
+      await user.updatePhotoURL(defaultAvatarUrl);
 
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'uid': user.uid,
         'fullName': fullName,
         'email': email,
         'bio': '',
-        'photoURL': '',
+        'photoURL': defaultAvatarUrl,
         'status': 'active',
         'username': fullName,
         'createdAt': FieldValue.serverTimestamp(),
@@ -123,7 +127,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const CalendarScreen()),
+        MaterialPageRoute(builder: (_) => const MemoScreen()),
       );
     } on FirebaseAuthException catch (e) {
       String message = 'Registration failed. Please try again.';
@@ -157,6 +161,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  // @override
+  // Widget build(BuildContext context) {
+  //   return Scaffold(
+  //     backgroundColor: bgColor,
+  //     body: SafeArea(
+  //       child: LayoutBuilder(
+  //         builder: (context, constraints) {
+  //           return SingleChildScrollView(
+  //             child: ConstrainedBox(
+  //               constraints: BoxConstraints(minHeight: constraints.maxHeight),
+  //               child: Center(
+  //                 child: Padding(
+  //                   padding: const EdgeInsets.symmetric(
+  //                     horizontal: 24,
+  //                     vertical: 24,
+  //                   ),
+  //                   child: ConstrainedBox(
+  //                     constraints: const BoxConstraints(maxWidth: 440),
+  //                     child: Column(
+  //                       mainAxisAlignment: MainAxisAlignment.center,
+  //                       crossAxisAlignment: CrossAxisAlignment.center,
+  //                       children: [
+  //                         _buildLogoHeader(),
+  //                         const SizedBox(height: 24),
+  //                         _buildRegisterCard(),
+  //                       ],
+  //                     ),
+  //                   ),
+  //                 ),
+  //               ),
+  //             ),
+  //           );
+  //         },
+  //       ),
+  //     ),
+  //   );
+  // }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -164,27 +205,51 @@ class _RegisterScreenState extends State<RegisterScreen> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            return SingleChildScrollView(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 24,
-                      vertical: 24,
-                    ),
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 440),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          _buildLogoHeader(),
-                          const SizedBox(height: 24),
-                          _buildRegisterCard(),
-                        ],
+            final isSmallHeight = constraints.maxHeight < 760;
+            final isVerySmallHeight = constraints.maxHeight < 700;
+
+            final logoSize = isVerySmallHeight
+                ? 135.0
+                : isSmallHeight
+                ? 160.0
+                : 220.0;
+
+            final topPadding = isVerySmallHeight
+                ? 8.0
+                : isSmallHeight
+                ? 12.0
+                : 24.0;
+
+            final sidePadding = isVerySmallHeight ? 18.0 : 24.0;
+
+            final gapAfterLogo = isVerySmallHeight
+                ? 10.0
+                : isSmallHeight
+                ? 14.0
+                : 24.0;
+
+            return Align(
+              alignment: Alignment.topCenter,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  sidePadding,
+                  topPadding,
+                  sidePadding,
+                  12,
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 440),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      _buildLogoHeader(size: logoSize),
+                      SizedBox(height: gapAfterLogo),
+                      _buildRegisterCard(
+                        compact: isSmallHeight,
+                        veryCompact: isVerySmallHeight,
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),
@@ -194,22 +259,99 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
     );
   }
-
-  Widget _buildLogoHeader() {
+  // Widget _buildLogoHeader() {
+  //   return Column(
+  //     crossAxisAlignment: CrossAxisAlignment.center,
+  //     children: [
+  //       Image.asset(
+  //         'assets/images/family_memo_logo.png',
+  //         width: 220,
+  //         height: 220,
+  //         fit: BoxFit.contain,
+  //       ),
+  //     ],
+  //   );
+  // }
+  Widget _buildLogoHeader({double size = 220}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Image.asset(
           'assets/images/family_memo_logo.png',
-          width: 220,
-          height: 220,
+          width: size,
+          height: size,
           fit: BoxFit.contain,
         ),
       ],
     );
   }
 
-  Widget _buildRegisterCard() {
+  // Widget _buildRegisterCard() {
+  //   return Container(
+  //     decoration: BoxDecoration(
+  //       color: Colors.white,
+  //       borderRadius: BorderRadius.circular(32),
+  //       boxShadow: [
+  //         BoxShadow(
+  //           color: Colors.black.withOpacity(0.08),
+  //           blurRadius: 30,
+  //           offset: const Offset(0, 18),
+  //         ),
+  //       ],
+  //     ),
+  //     child: Padding(
+  //       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
+  //       child: Column(
+  //         crossAxisAlignment: CrossAxisAlignment.stretch,
+  //         children: [
+  //           _buildFullNameField(),
+  //           const SizedBox(height: 18),
+  //           _buildEmailField(),
+  //           const SizedBox(height: 18),
+  //           _buildPasswordField(),
+  //           const SizedBox(height: 28),
+  //           _buildCreateAccountButton(),
+  //           const SizedBox(height: 24),
+  //           _buildBottomNavigation(),
+  //         ],
+  //       ),
+  //     ),
+  //   );
+  // }
+  Widget _buildRegisterCard({
+    bool compact = false,
+    bool veryCompact = false,
+  }) {
+    final horizontalPadding = veryCompact
+        ? 20.0
+        : compact
+        ? 24.0
+        : 28.0;
+
+    final verticalPadding = veryCompact
+        ? 18.0
+        : compact
+        ? 22.0
+        : 30.0;
+
+    final fieldGap = veryCompact
+        ? 12.0
+        : compact
+        ? 14.0
+        : 18.0;
+
+    final buttonGap = veryCompact
+        ? 16.0
+        : compact
+        ? 20.0
+        : 28.0;
+
+    final footerGap = veryCompact
+        ? 12.0
+        : compact
+        ? 16.0
+        : 24.0;
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -223,18 +365,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ],
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 30),
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontalPadding,
+          vertical: verticalPadding,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildFullNameField(),
-            const SizedBox(height: 18),
+            SizedBox(height: fieldGap),
             _buildEmailField(),
-            const SizedBox(height: 18),
+            SizedBox(height: fieldGap),
             _buildPasswordField(),
-            const SizedBox(height: 28),
+            SizedBox(height: buttonGap),
             _buildCreateAccountButton(),
-            const SizedBox(height: 24),
+            SizedBox(height: footerGap),
             _buildBottomNavigation(),
           ],
         ),

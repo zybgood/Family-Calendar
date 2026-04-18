@@ -331,15 +331,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               letterSpacing: -0.6,
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            _isLoading ? '' : _familyName,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w500,
-              color: SettingsScreen.accentColor,
-            ),
-          ),
+          // const SizedBox(height: 4),
+          // Text(
+          //   _isLoading ? '' : _familyName,
+          //   style: const TextStyle(
+          //     fontSize: 16,
+          //     fontWeight: FontWeight.w500,
+          //     color: SettingsScreen.accentColor,
+          //   ),
+          // ),
         ],
       ),
     );
