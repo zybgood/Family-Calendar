@@ -477,7 +477,7 @@
 				DEVELOPMENT_TEAM = Q9HJKF38WR;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Cottage: Family Calendar";
+				INFOPLIST_KEY_CFBundleDisplayName = "Family Memo";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -661,7 +661,7 @@
 				DEVELOPMENT_TEAM = Q9HJKF38WR;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Cottage: Family Calendar";
+				INFOPLIST_KEY_CFBundleDisplayName = "Family Memo";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -685,7 +685,7 @@
 				DEVELOPMENT_TEAM = Q9HJKF38WR;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Cottage: Family Calendar";
+				INFOPLIST_KEY_CFBundleDisplayName = "Family Memo";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
