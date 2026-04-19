@@ -696,7 +696,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
       participants: avatarUrls,
       subtitle: null,
-      trailingIcon: _buildTrailingIcon(event),
+      trailingIcon: null,
       onTap: () {
         final task = Task(
           id: event.id,
@@ -799,15 +799,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
       case 'meeting':
         return const Color(0xFFE0F2FE);
       case 'health':
-        return const Color(0xFFECFDF5);
+        return const Color(0xFFE0F2FE);
       case 'family':
-        return const Color(0xFFF3E8FF);
+        return const Color(0xFFE0F2FE);
       case 'shopping':
-        return const Color(0xFFFCE7F3);
+        return const Color(0xFFE0F2FE);
       case 'education':
         return const Color(0xFFE0F2FE);
       default:
-        return const Color(0xFFF8FAFC);
+        return const Color(0xFFE0F2FE);
     }
   }
 
