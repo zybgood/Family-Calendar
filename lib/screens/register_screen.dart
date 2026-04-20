@@ -25,7 +25,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   static const fieldBackgroundColor = bgColor;
   static const fieldBorderColor = Color(0xFFDDE2E7);
   static const String defaultAvatarUrl =
-      'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2Fbaby-cute-cat-png.png?alt=media&token=9722de02-f504-413c-9178-7e9dbd922a29';
+      'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2Fdefault.png?alt=media&token=87a5af03-c5c0-47f3-ac7a-3a4cfd811fa9';
 
   final fullNameController = TextEditingController();
   final emailController = TextEditingController();
