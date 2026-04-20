@@ -47,7 +47,7 @@ class FamilySelectionResult {
 
 class FamilySelectionScreen extends StatefulWidget {
   const FamilySelectionScreen({Key? key, this.initialSelectedIds = const []})
-    : super(key: key);
+      : super(key: key);
 
   final List<String> initialSelectedIds;
 
@@ -128,8 +128,8 @@ class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
   }
 
   Future<List<SelectedTaskMember>> _loadAllFamilyMembers(
-    String familyId,
-  ) async {
+      String familyId,
+      ) async {
     final snapshot = await FirebaseFirestore.instance
         .collection('families')
         .doc(familyId)
@@ -148,26 +148,26 @@ class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
 
       final userData = await _findUserByUid(userId);
       final name =
-          (userData?['fullName'] ??
-                  userData?['name'] ??
-                  userData?['displayName'] ??
-                  memberData['nickname'] ??
-                  memberData['fullName'] ??
-                  memberData['name'] ??
-                  'Unknown Member')
-              .toString()
-              .trim();
+      (userData?['fullName'] ??
+          userData?['name'] ??
+          userData?['displayName'] ??
+          memberData['nickname'] ??
+          memberData['fullName'] ??
+          memberData['name'] ??
+          'Unknown Member')
+          .toString()
+          .trim();
 
       final avatarUrl =
-          (userData?['photoURL'] ??
-                  userData?['photoUrl'] ??
-                  userData?['avatar'] ??
-                  memberData['photoURL'] ??
-                  memberData['photoUrl'] ??
-                  memberData['avatar'] ??
-                  '')
-              .toString()
-              .trim();
+      (userData?['photoURL'] ??
+          userData?['photoUrl'] ??
+          userData?['avatar'] ??
+          memberData['photoURL'] ??
+          memberData['photoUrl'] ??
+          memberData['avatar'] ??
+          '')
+          .toString()
+          .trim();
 
       members.add(
         SelectedTaskMember(
@@ -271,10 +271,10 @@ class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
         _FamilyGroup(
           id: familyId,
           name:
-              (familyData['familyName'] ??
-                      membershipData['familyName'] ??
-                      'Unnamed Family')
-                  .toString(),
+          (familyData['familyName'] ??
+              membershipData['familyName'] ??
+              'Unnamed Family')
+              .toString(),
           memberCount: memberCount,
           avatars: avatars,
           extraCount: extraCount,
@@ -384,7 +384,6 @@ class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
                         children: [
                           const SizedBox(height: 77),
                           Expanded(child: _buildList()),
-                          const SizedBox(height: 242),
                         ],
                       ),
                     ),
@@ -528,21 +527,21 @@ class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
           color: _accent,
           child: SingleChildScrollView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: groups
                   .map(
                     (group) => Padding(
-                      padding: const EdgeInsets.only(bottom: 24),
-                      child: _FamilyGroupCard(
-                        group: group,
-                        selected: _selectedFamilyIds.contains(group.id),
-                        onSelectAll: () => _handleSelectAll(group),
-                        onTap: () => _handleOpenFamily(group),
-                      ),
-                    ),
-                  )
+                  padding: const EdgeInsets.only(bottom: 24),
+                  child: _FamilyGroupCard(
+                    group: group,
+                    selected: _selectedFamilyIds.contains(group.id),
+                    onSelectAll: () => _handleSelectAll(group),
+                    onTap: () => _handleOpenFamily(group),
+                  ),
+                ),
+              )
                   .toList(growable: false),
             ),
           ),
@@ -607,17 +606,22 @@ class _FamilyGroupCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  group.name,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: _headline,
+                Expanded(
+                  child: Text(
+                    group.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: _headline,
+                    ),
                   ),
                 ),
-                if (selected)
+                if (selected) ...[
+                  const SizedBox(width: 12),
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 10,
@@ -636,6 +640,7 @@ class _FamilyGroupCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                ],
               ],
             ),
             const SizedBox(height: 4),

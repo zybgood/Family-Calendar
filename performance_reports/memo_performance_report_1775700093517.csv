@@ -1,0 +1,8 @@
+metric,dataset_size,iterations,average_ms,min_ms,max_ms,notes
+memo_section_transform,100,12,19.195,13.922,27.119,"Transforms raw memo records into dated sections."
+memo_list_initial_render,100,8,29.569,25.003,34.278,"Builds the benchmark memo list widget tree."
+memo_section_transform,1000,12,91.118,89.342,96.120,"Transforms raw memo records into dated sections."
+memo_list_initial_render,1000,8,25.383,19.658,35.727,"Builds the benchmark memo list widget tree."
+memo_section_transform,5000,12,374.028,350.443,421.559,"Transforms raw memo records into dated sections."
+memo_list_initial_render,5000,8,15.592,14.465,17.461,"Builds the benchmark memo list widget tree."
+memo_list_scroll_stress,5000,10,63.224,48.911,122.678,"Repeated up/down drag benchmark for large memo list."

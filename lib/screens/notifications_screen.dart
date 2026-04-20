@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../themes/app_theme.dart';
-import '../assets/figma_assets.dart';
 
 class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({Key? key}) : super(key: key);

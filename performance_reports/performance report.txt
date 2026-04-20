@@ -1,0 +1,10 @@
+中文版：本次性能测试通过 Flutter integration_test 和自定义基准测试生成 CSV 报告。从结果来看，UI 渲染性能表现稳定，ListView.builder 在大数据量下仍然保持较好的性能，说明渲染层没有明显瓶颈。
+
+但在数据量达到 5000 条时，memo 分组转换耗时达到 374ms，呈线性增长，说明当前数据处理逻辑存在性能问题，尤其是在主线程执行时可能导致明显卡顿。
+
+针对这个问题，可以通过将数据处理移到 isolate、增加缓存机制、以及采用增量更新来优化，从而提升整体性能表现。
+
+
+Eng：This performance test generated a CSV report using Flutter integration_test and a custom benchmark. The results show stable UI rendering performance; ListView.builder maintains good performance even with large datasets, indicating no significant bottleneck in the rendering layer.
+
+However, when the data volume reaches 5000 records, the memo grouping conversion time reaches 374ms, showing a linear increase, indicating a performance issue with the current data processing logic, particularly potentially causing noticeable lag when executed on the main thread.

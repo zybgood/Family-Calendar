@@ -663,6 +663,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return events[index + 1];
   }
 
+  String _ellipsisTitle(String text) {
+    final value = text.trim();
+    if (value.length <= 12) return value;
+    return '${value.substring(0, 12)}...';
+  }
+
   Widget _buildEventCard(
     BuildContext context,
     _CalendarEvent event,
@@ -682,7 +688,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     return EventCard(
       color: _eventColor(event.eventType),
       category: event.eventType,
-      title: event.title,
+      title: _ellipsisTitle(event.title),
       timeRange: _formatTimeRange(
         event.startTime,
         event.endTime,
@@ -690,7 +696,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
       participants: avatarUrls,
       subtitle: null,
-      trailingIcon: _buildTrailingIcon(event),
+      trailingIcon: null,
       onTap: () {
         final task = Task(
           id: event.id,
@@ -705,7 +711,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           endTime: event.endTime,
           notes: event.description,
           participants: participants,
-          reminderEnabled: event.reminderMinutes > 0,
+          reminderEnabled: false,
         );
 
         Navigator.of(context).push(
@@ -793,15 +799,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
       case 'meeting':
         return const Color(0xFFE0F2FE);
       case 'health':
-        return const Color(0xFFECFDF5);
+        return const Color(0xFFE0F2FE);
       case 'family':
-        return const Color(0xFFF3E8FF);
+        return const Color(0xFFE0F2FE);
       case 'shopping':
-        return const Color(0xFFFCE7F3);
+        return const Color(0xFFE0F2FE);
       case 'education':
         return const Color(0xFFE0F2FE);
       default:
-        return const Color(0xFFF8FAFC);
+        return const Color(0xFFE0F2FE);
     }
   }
 
@@ -941,7 +947,7 @@ class _FlowItem {
   }
 
   factory _FlowItem.event(_CalendarEvent event) {
-    const double cardHeight = 170.0;
+    const double cardHeight = 145.0;
 
     return _FlowItem._(
       type: _FlowItemType.event,

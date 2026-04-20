@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'firebase_options.dart';
-import 'screens/calendar_screen.dart';
+import 'screens/memo_screen.dart';
 import 'screens/login_screen.dart';
 import 'themes/app_theme.dart';
 
@@ -22,7 +22,7 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Calendar',
+        title: 'Login',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: AppTheme.accent),
         scaffoldBackgroundColor: AppTheme.pageBackground,
@@ -55,7 +55,7 @@ class AuthGate extends StatelessWidget {
         }
 
         if (snapshot.hasData) {
-          return const CalendarScreen();
+          return const MemoScreen();
         }
 
         return const LoginScreen();

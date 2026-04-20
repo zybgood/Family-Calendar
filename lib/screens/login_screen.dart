@@ -105,7 +105,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const MemoScreen()),
+        MaterialPageRoute(
+          builder: (_) => const MemoScreen(),
+        ),
       );
     } on FirebaseAuthException catch (e) {
       _showMessage(_getFirebaseAuthErrorMessage(e));
@@ -160,9 +162,9 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   @override
@@ -170,115 +172,49 @@ class _LoginScreenState extends State<LoginScreen> {
     return Scaffold(
       backgroundColor: bgColor,
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            return SingleChildScrollView(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 440),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    const SizedBox(height: 40),
-                    _buildLogoHeader(),
-                    const SizedBox(height: 40),
-                    _buildLoginCard(),
-                  ],
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 440),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          _buildLogoHeader(),
+                          const SizedBox(height: 32),
+                          _buildLoginCard(),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         ),
       ),
     );
   }
 
-  // Widget _buildLogoHeader() {
-  //   return Column(
-  //     crossAxisAlignment: CrossAxisAlignment.center,
-  //     children: [
-  //       Container(
-  //         width: 80,
-  //         height: 80,
-  //         decoration: BoxDecoration(
-  //           color: accentColor.withOpacity(0.2),
-  //           border: Border.all(
-  //             color: accentColor.withOpacity(0.1),
-  //             width: 1,
-  //           ),
-  //           borderRadius: BorderRadius.circular(100),
-  //         ),
-  //         child: const Center(
-  //           child: Icon(
-  //             Icons.location_on,
-  //             size: 40,
-  //             color: accentColor,
-  //           ),
-  //         ),
-  //       ),
-  //       const SizedBox(height: 16),
-  //       const Text(
-  //         'Cottage',
-  //         style: TextStyle(
-  //           fontSize: 30,
-  //           fontWeight: FontWeight.bold,
-  //           color: primaryColor,
-  //           letterSpacing: -0.75,
-  //           fontFamily: 'Plus Jakarta Sans',
-  //         ),
-  //       ),
-  //       const SizedBox(height: 8),
-  //       Text(
-  //         'Your family\'s shared space',
-  //         style: TextStyle(
-  //           fontSize: 14,
-  //           fontWeight: FontWeight.w500,
-  //           color: hintColor,
-  //           fontFamily: 'Plus Jakarta Sans',
-  //         ),
-  //       ),
-  //     ],
-  //   );
-  // }
   Widget _buildLogoHeader() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Container(
-          width: 80,
-          height: 80,
-          decoration: BoxDecoration(
-            color: accentColor.withOpacity(0.2),
-            border: Border.all(color: accentColor.withOpacity(0.1), width: 1),
-            borderRadius: BorderRadius.circular(100),
-          ),
-          child: const Center(
-            child: Icon(Icons.location_on, size: 40, color: accentColor),
-          ),
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          'Cottage',
-          style: TextStyle(
-            fontSize: 30,
-            fontWeight: FontWeight.bold,
-            color: primaryColor,
-            letterSpacing: -0.75,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Your family\'s shared space',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: hintColor,
-          ),
+        Image.asset(
+          'assets/images/family_memo_logo.png',
+          width: 220,
+          height: 220,
+          fit: BoxFit.contain,
         ),
       ],
     );
   }
-
   Widget _buildLoginCard() {
     return Container(
       decoration: BoxDecoration(
@@ -331,7 +267,7 @@ class _LoginScreenState extends State<LoginScreen> {
             border: Border.all(color: borderColor, width: 1),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 21, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 21, vertical: 4),
             child: TextField(
               controller: emailController,
               keyboardType: TextInputType.emailAddress,
@@ -371,31 +307,49 @@ class _LoginScreenState extends State<LoginScreen> {
             border: Border.all(color: borderColor, width: 1),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 21, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 21, vertical: 4),
             child: TextField(
               controller: passwordController,
               obscureText: obscurePassword,
+              textAlignVertical: TextAlignVertical.center,
+              style: const TextStyle(
+                fontSize: 16,
+                color: primaryColor,
+                fontFamily: 'Plus Jakarta Sans',
+                height: 1.2,
+              ),
               decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 12),
                 hintText: '••••••••',
                 hintStyle: TextStyle(
                   color: hintColor.withOpacity(0.5),
                   fontSize: 16,
                 ),
                 border: InputBorder.none,
-                suffixIcon: GestureDetector(
-                  onTap: () {
+                suffixIcon: IconButton(
+                  onPressed: () {
                     setState(() {
                       obscurePassword = !obscurePassword;
                     });
                   },
-                  child: Icon(
+                  icon: Icon(
                     obscurePassword ? Icons.visibility_off : Icons.visibility,
                     color: hintColor,
-                    size: 20,
+                    size: 16,
+                  ),
+                  splashRadius: 18,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 32,
+                    minHeight: 32,
                   ),
                 ),
+                suffixIconConstraints: const BoxConstraints(
+                  minWidth: 36,
+                  minHeight: 36,
+                ),
               ),
-              style: const TextStyle(fontSize: 16, color: primaryColor),
             ),
           ),
         ),
@@ -463,7 +417,11 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
         const SizedBox(height: 16),
-        const Divider(color: Color(0xFFF1F5F9), height: 1, thickness: 1),
+        const Divider(
+          color: Color(0xFFF1F5F9),
+          height: 1,
+          thickness: 1,
+        ),
         const SizedBox(height: 25),
         Center(
           child: RichText(
