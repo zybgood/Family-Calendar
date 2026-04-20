@@ -34,6 +34,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   final ImagePicker _picker = ImagePicker();
 
+  /// 把这里换成你自己的系统头像链接
+  /// 建议直接放 Firebase Storage 的公开下载地址
+  final List<String> _defaultAvatarUrls = [
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FGrandfather.png?alt=media&token=1c9c2184-a688-4767-a017-0dd7fd4a8bef',
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FGrandmother.png?alt=media&token=69a1ba36-bbe4-4f22-8e06-2594b9c9cff5',
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FDad.png?alt=media&token=1231ae66-d746-4ab0-8399-a03cea1559c3',
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FMom.png?alt=media&token=d75267c6-0db8-414a-9ae5-acd0ed596283',
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FSon.png?alt=media&token=ff37db2c-b550-4ee6-8002-0a24040afed5',
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FDaughter.png?alt=media&token=57a326d0-fe1c-489d-9bc4-ec4e722743c8',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -103,6 +114,179 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _showAvatarOptionsSheet() async {
+    if (_isUploadingPhoto) return;
+
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE2E8F0),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Choose Avatar',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      color: SettingsScreen.primaryColor,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Select a system avatar or upload your own photo',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _defaultAvatarUrls.length,
+                    gridDelegate:
+                    const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 14,
+                      mainAxisSpacing: 14,
+                      childAspectRatio: 1,
+                    ),
+                    itemBuilder: (context, index) {
+                      final avatarUrl = _defaultAvatarUrls[index];
+                      return _buildSystemAvatarItem(
+                        avatarUrl: avatarUrl,
+                        onTap: () async {
+                          Navigator.of(sheetContext).pop();
+                          await _selectSystemAvatar(avatarUrl);
+                        },
+                      );
+                    },
+                  ),
+
+                  const SizedBox(height: 20),
+
+                  GestureDetector(
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      await _pickAndUploadAvatar();
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF8E7),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
+                          color: SettingsScreen.accentColor.withOpacity(0.25),
+                        ),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(
+                            Icons.photo_library_outlined,
+                            color: SettingsScreen.accentColor,
+                            size: 20,
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Upload photo from gallery',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: SettingsScreen.primaryColor,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.arrow_forward_ios,
+                            size: 14,
+                            color: Color(0xFF64748B),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _selectSystemAvatar(String avatarUrl) async {
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('User not logged in')));
+        return;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _isUploadingPhoto = true;
+      });
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .set({
+        'photoURL': avatarUrl,
+        'avatarType': 'system',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      if (!mounted) return;
+      setState(() {
+        _photoURL = avatarUrl;
+        _isUploadingPhoto = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Avatar updated successfully')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isUploadingPhoto = false;
+      });
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to update avatar: $e')));
+    }
+  }
+
   Future<void> _pickAndUploadAvatar() async {
     try {
       final currentUser = FirebaseAuth.instance.currentUser;
@@ -156,7 +340,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await FirebaseFirestore.instance
           .collection('users')
           .doc(currentUser.uid)
-          .set({'photoURL': downloadUrl}, SetOptions(merge: true));
+          .set({
+        'photoURL': downloadUrl,
+        'avatarType': 'upload',
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
 
       if (!mounted) return;
       setState(() {
@@ -247,7 +435,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             alignment: Alignment.bottomRight,
             children: [
               GestureDetector(
-                onTap: _isUploadingPhoto ? null : _pickAndUploadAvatar,
+                onTap: _isUploadingPhoto ? null : _showAvatarOptionsSheet,
                 child: Container(
                   width: 128,
                   height: 128,
@@ -262,50 +450,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: ClipOval(
                     child: _isLoading
                         ? const Center(
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                         : Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              _photoURL.isNotEmpty
-                                  ? Image.network(
-                                      _photoURL,
-                                      fit: BoxFit.cover,
-                                      errorBuilder:
-                                          (context, error, stackTrace) {
-                                            return const Center(
-                                              child: Icon(
-                                                Icons.person,
-                                                size: 60,
-                                                color: Colors.white,
-                                              ),
-                                            );
-                                          },
-                                    )
-                                  : const Center(
-                                      child: Icon(
-                                        Icons.person,
-                                        size: 60,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                              if (_isUploadingPhoto)
-                                Container(
-                                  color: Colors.black26,
-                                  child: const Center(
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ),
-                            ],
+                      fit: StackFit.expand,
+                      children: [
+                        _photoURL.isNotEmpty
+                            ? Image.network(
+                          _photoURL,
+                          fit: BoxFit.cover,
+                          errorBuilder:
+                              (context, error, stackTrace) {
+                            return const Center(
+                              child: Icon(
+                                Icons.person,
+                                size: 60,
+                                color: Colors.white,
+                              ),
+                            );
+                          },
+                        )
+                            : const Center(
+                          child: Icon(
+                            Icons.person,
+                            size: 60,
+                            color: Colors.white,
                           ),
+                        ),
+                        if (_isUploadingPhoto)
+                          Container(
+                            color: Colors.black26,
+                            child: const Center(
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
               GestureDetector(
-                onTap: _isUploadingPhoto ? null : _pickAndUploadAvatar,
+                onTap: _isUploadingPhoto ? null : _showAvatarOptionsSheet,
                 child: Container(
                   width: 32,
                   height: 32,
@@ -341,6 +529,48 @@ class _SettingsScreenState extends State<SettingsScreen> {
           //   ),
           // ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSystemAvatarItem({
+    required String avatarUrl,
+    required VoidCallback onTap,
+  }) {
+    final bool isSelected = _photoURL == avatarUrl;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: isSelected
+                ? SettingsScreen.accentColor
+                : const Color(0xFFE2E8F0),
+            width: isSelected ? 3 : 1.5,
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(4),
+          child: ClipOval(
+            child: Image.network(
+              avatarUrl,
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) {
+                return Container(
+                  color: const Color(0xFFF8FAFC),
+                  child: const Center(
+                    child: Icon(
+                      Icons.person,
+                      color: Color(0xFF94A3B8),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
       ),
     );
   }
