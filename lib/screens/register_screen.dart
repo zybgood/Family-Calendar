@@ -79,6 +79,81 @@ class _RegisterScreenState extends State<RegisterScreen> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  // Future<void> _register() async {
+  //   final validationMessage = _validateInputs();
+  //   if (validationMessage != null) {
+  //     _showMessage(validationMessage);
+  //     return;
+  //   }
+  //
+  //   setState(() {
+  //     _isLoading = true;
+  //   });
+  //
+  //   final fullName = fullNameController.text.trim();
+  //   final email = emailController.text.trim();
+  //   final password = passwordController.text.trim();
+  //
+  //   try {
+  //     final credential = await FirebaseAuth.instance
+  //         .createUserWithEmailAndPassword(email: email, password: password);
+  //
+  //     final user = credential.user;
+  //
+  //     if (user == null) {
+  //       _showMessage('Registration failed. Please try again.');
+  //       return;
+  //     }
+  //
+  //     await user.updateDisplayName(fullName);
+  //     await user.updatePhotoURL(defaultAvatarUrl);
+  //
+  //     await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+  //       'uid': user.uid,
+  //       'fullName': fullName,
+  //       'email': email,
+  //       'bio': '',
+  //       'photoURL': defaultAvatarUrl,
+  //       'status': 'active',
+  //       'username': fullName,
+  //       'createdAt': FieldValue.serverTimestamp(),
+  //       'updatedAt': FieldValue.serverTimestamp(),
+  //       'lastLoginAt': FieldValue.serverTimestamp(),
+  //     });
+  //
+  //     if (!mounted) return;
+  //
+  //     _showMessage('Account created successfully.');
+  //
+  //     Navigator.pushReplacement(
+  //       context,
+  //       MaterialPageRoute(builder: (_) => const MemoScreen()),
+  //     );
+  //   } on FirebaseAuthException catch (e) {
+  //     String message = 'Registration failed. Please try again.';
+  //
+  //     if (e.code == 'email-already-in-use') {
+  //       message = 'This email is already in use.';
+  //     } else if (e.code == 'invalid-email') {
+  //       message = 'The email address is invalid.';
+  //     } else if (e.code == 'weak-password') {
+  //       message = 'The password is too weak.';
+  //     } else if (e.code == 'operation-not-allowed') {
+  //       message = 'Email/password sign-in is not enabled in Firebase Console.';
+  //     }
+  //
+  //     _showMessage(message);
+  //   } catch (e) {
+  //     _showMessage('Something went wrong: $e');
+  //   } finally {
+  //     if (mounted) {
+  //       setState(() {
+  //         _isLoading = false;
+  //       });
+  //     }
+  //   }
+  // }
+
   Future<void> _register() async {
     final validationMessage = _validateInputs();
     if (validationMessage != null) {
@@ -108,26 +183,35 @@ class _RegisterScreenState extends State<RegisterScreen> {
       await user.updateDisplayName(fullName);
       await user.updatePhotoURL(defaultAvatarUrl);
 
+      // 发送邮箱验证邮件
+      await user.sendEmailVerification();
+
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'uid': user.uid,
         'fullName': fullName,
         'email': email,
+        'emailVerified': false,
         'bio': '',
         'photoURL': defaultAvatarUrl,
-        'status': 'active',
+        'status': 'pending_email_verification',
         'username': fullName,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
-        'lastLoginAt': FieldValue.serverTimestamp(),
+        'lastLoginAt': null,
       });
+
+      // 注册后退出登录，防止未验证邮箱直接进入主页
+      await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
 
-      _showMessage('Account created successfully.');
+      _showMessage(
+        'Account created successfully. Please check your email to verify your account before signing in.',
+      );
 
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => const MemoScreen()),
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
       );
     } on FirebaseAuthException catch (e) {
       String message = 'Registration failed. Please try again.';
@@ -140,6 +224,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
         message = 'The password is too weak.';
       } else if (e.code == 'operation-not-allowed') {
         message = 'Email/password sign-in is not enabled in Firebase Console.';
+      } else if (e.code == 'too-many-requests') {
+        message = 'Too many requests. Please try again later.';
       }
 
       _showMessage(message);

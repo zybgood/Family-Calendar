@@ -61,13 +61,28 @@ class _LoginScreenState extends State<LoginScreen> {
         password: password,
       );
 
-      final user = userCredential.user;
+      await userCredential.user?.reload();
+
+      final user = auth.currentUser;
 
       if (user == null) {
         throw FirebaseAuthException(
           code: 'user-null',
           message: 'Login failed. Please try again.',
         );
+      }
+
+      if (!user.emailVerified) {
+        await user.sendEmailVerification();
+        await auth.signOut();
+
+        if (!mounted) return;
+
+        _showMessage(
+          'Please verify your email first. We have sent the verification email again.',
+        );
+
+        return;
       }
 
       final userDocRef = firestore.collection('users').doc(user.uid);
@@ -88,12 +103,15 @@ class _LoginScreenState extends State<LoginScreen> {
           'bio': '',
           'role': 'owner',
           'status': 'active',
+          'emailVerified': true,
           'createdAt': now,
           'updatedAt': now,
           'lastLoginAt': now,
         });
       } else {
         await userDocRef.set({
+          'status': 'active',
+          'emailVerified': true,
           'lastLoginAt': now,
           'updatedAt': now,
         }, SetOptions(merge: true));
@@ -122,17 +140,81 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> _resetPassword() async {
-    final email = emailController.text.trim();
+  void _showForgotPasswordDialog() {
+    final resetEmailController = TextEditingController(
+      text: emailController.text.trim(),
+    );
 
-    if (email.isEmpty) {
-      _showMessage('Please enter your email first.');
-      return;
-    }
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: bgColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: const Text(
+            'Reset Password',
+            style: TextStyle(
+              color: primaryColor,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: TextField(
+            controller: resetEmailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              labelText: 'Email Address',
+              hintText: 'Enter your email',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+              },
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: hintColor),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: accentColor,
+                foregroundColor: primaryColor,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              onPressed: () async {
+                final email = resetEmailController.text.trim();
 
+                if (email.isEmpty) {
+                  _showMessage('Please enter your email.');
+                  return;
+                }
+
+                Navigator.pop(dialogContext);
+                await _sendPasswordResetEmail(email);
+              },
+              child: const Text(
+                'Send',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _sendPasswordResetEmail(String email) async {
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
-      _showMessage('Password reset email sent.');
+
+      if (!mounted) return;
+
+      _showMessage('Password reset email sent. Please check your inbox.');
     } on FirebaseAuthException catch (e) {
       _showMessage(_getFirebaseAuthErrorMessage(e));
     } catch (e) {
@@ -156,12 +238,17 @@ class _LoginScreenState extends State<LoginScreen> {
         return 'Network error. Please check your connection.';
       case 'too-many-requests':
         return 'Too many attempts. Please try again later.';
+      case 'missing-email':
+        return 'Please enter your email.';
       default:
-        return e.message ?? 'Login failed. Please try again.';
+        return e.message ?? 'Operation failed. Please try again.';
     }
   }
 
   void _showMessage(String message) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
@@ -179,7 +266,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 constraints: BoxConstraints(minHeight: constraints.maxHeight),
                 child: Center(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 24,
+                    ),
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 440),
                       child: Column(
@@ -215,6 +305,7 @@ class _LoginScreenState extends State<LoginScreen> {
       ],
     );
   }
+
   Widget _buildLoginCard() {
     return Container(
       decoration: BoxDecoration(
@@ -271,6 +362,8 @@ class _LoginScreenState extends State<LoginScreen> {
             child: TextField(
               controller: emailController,
               keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              autocorrect: false,
               decoration: InputDecoration(
                 hintText: 'hello@family.com',
                 hintStyle: TextStyle(
@@ -312,6 +405,8 @@ class _LoginScreenState extends State<LoginScreen> {
               controller: passwordController,
               obscureText: obscurePassword,
               textAlignVertical: TextAlignVertical.center,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _isLoading ? null : _signIn(),
               style: const TextStyle(
                 fontSize: 16,
                 color: primaryColor,
@@ -376,24 +471,26 @@ class _LoginScreenState extends State<LoginScreen> {
             padding: const EdgeInsets.symmetric(vertical: 16),
             child: _isLoading
                 ? const Center(
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.5,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    ),
-                  )
-                : const Text(
-                    'Sign In',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF0F172A),
-                    ),
+              child: SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Colors.white,
                   ),
+                ),
+              ),
+            )
+                : const Text(
+              'Sign In',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Color(0xFF0F172A),
+              ),
+            ),
           ),
         ),
       ),
@@ -405,7 +502,7 @@ class _LoginScreenState extends State<LoginScreen> {
       children: [
         Center(
           child: GestureDetector(
-            onTap: _resetPassword,
+            onTap: _showForgotPasswordDialog,
             child: Text(
               'Forgot Password?',
               style: TextStyle(
