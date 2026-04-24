@@ -820,11 +820,9 @@ class _MemoScreenState extends State<MemoScreen>
               SafeArea(
                 bottom: false,
                 child: Center(
-                  child: Container(
+                  child: SizedBox(
                     width: 430,
-                    constraints: const BoxConstraints(maxWidth: 430),
                     height: double.infinity,
-                    color: Colors.transparent,
                     child: Stack(
                       children: [
                         Positioned(
