@@ -1,18 +1,22 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:path_provider/path_provider.dart';
+import 'package:record/record.dart';
 
 import '../navigation/app_bottom_nav.dart';
 import '../themes/app_theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/bottom_navigation_bar.dart';
 import 'memo_detail_screen.dart';
+import 'recorded_voice_memo_detail_screen.dart';
 
 class MemoScreen extends StatefulWidget {
   const MemoScreen({super.key});
@@ -29,28 +33,26 @@ class _MemoScreenState extends State<MemoScreen>
   static const secondaryAccent = Color(0xFFFDE047);
   static const borderColor = Color.fromRGBO(236, 91, 19, 0.05);
   static const int _cardTitleLimit = 20;
-  static const double _cancelEnterInset = 6;
-  static const double _cancelExitInset = 24;
+  static const String _voiceMemoEmptyNotePreview =
+      'No notes yet. Tap to add notes for this voice memo.';
 
   final int _selectedNavIndex = 0;
   String? _deleteActionMemoId;
   String? _deletingMemoId;
-  final GlobalKey _cancelVoiceZoneKey = GlobalKey();
-  final stt.SpeechToText _speech = stt.SpeechToText();
+  final AudioRecorder _audioRecorder = AudioRecorder();
   late final AnimationController _voiceBarsController;
   late final ValueNotifier<_VoiceUiState> _voiceUi;
-  Timer? _voiceReleaseFallbackTimer;
-  bool _speechReady = false;
-  bool? _pendingVoiceCancel;
-  int _voiceSessionId = 0;
-  String _voiceDraftText = '';
+  StreamSubscription<Amplitude>? _recordingAmplitudeSub;
+  Timer? _recordingTimer;
+  DateTime? _recordingStartedAt;
+  String? _activeRecordingPath;
 
   bool get _isListening => _voiceUi.value.isListening;
   bool get _isVoiceTransitioning => _voiceUi.value.isVoiceTransitioning;
-  bool get _isVoiceHoldActive => _voiceUi.value.isVoiceHoldActive;
-  bool get _isCancelZoneActive => _voiceUi.value.isCancelZoneActive;
+  bool get _isRecordingSessionActive => _voiceUi.value.isRecordingSessionActive;
   bool get _isCreatingVoiceMemo => _voiceUi.value.isCreatingVoiceMemo;
   double get _soundLevel => _voiceUi.value.soundLevel;
+  Duration get _recordingElapsed => _voiceUi.value.elapsed;
   bool get _isVoiceOverlayVisible {
     return _voiceUi.value.isOverlayVisible;
   }
@@ -63,15 +65,15 @@ class _MemoScreenState extends State<MemoScreen>
       vsync: this,
       duration: const Duration(milliseconds: 900),
     );
-    _initSpeech();
   }
 
   @override
   void dispose() {
-    _voiceReleaseFallbackTimer?.cancel();
+    _recordingTimer?.cancel();
+    _recordingAmplitudeSub?.cancel();
     _voiceUi.dispose();
     _voiceBarsController.dispose();
-    _speech.cancel();
+    _audioRecorder.dispose();
     super.dispose();
   }
 
@@ -82,37 +84,6 @@ class _MemoScreenState extends State<MemoScreen>
       return;
     }
     _voiceUi.value = next;
-  }
-
-  Future<void> _initSpeech() async {
-    try {
-      final ready = await _speech.initialize(
-        onStatus: _handleSpeechStatus,
-        onError: _handleSpeechError,
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _speechReady = ready;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _speechReady = false;
-      });
-    }
-  }
-
-  Future<bool> _ensureSpeechReady() async {
-    if (_speechReady) {
-      return true;
-    }
-
-    await _initSpeech();
-    return _speechReady;
   }
 
   void _showMessage(String message) {
@@ -136,297 +107,171 @@ class _MemoScreenState extends State<MemoScreen>
     _voiceBarsController.stop();
   }
 
-  void _resetVoiceOverlay({required bool clearText}) {
-    _voiceReleaseFallbackTimer?.cancel();
-    _voiceReleaseFallbackTimer = null;
+  void _resetVoiceOverlay() {
     _updateVoiceUi(
       (current) => current.copyWith(
         isListening: false,
         isVoiceTransitioning: false,
-        isVoiceHoldActive: false,
-        isCancelZoneActive: false,
+        isRecordingSessionActive: false,
         isCreatingVoiceMemo: false,
         soundLevel: 0,
+        elapsed: Duration.zero,
       ),
     );
-    _pendingVoiceCancel = null;
-    if (clearText) {
-      _voiceDraftText = '';
-    }
+    _activeRecordingPath = null;
+    _recordingStartedAt = null;
+    _recordingTimer?.cancel();
+    _recordingTimer = null;
+    _recordingAmplitudeSub?.cancel();
+    _recordingAmplitudeSub = null;
     _stopVoiceBars();
-  }
-
-  void _updateCancelZoneState(Offset globalPosition) {
-    if (!_isVoiceHoldActive) {
-      return;
-    }
-
-    final renderObject = _cancelVoiceZoneKey.currentContext?.findRenderObject();
-    if (renderObject is! RenderBox) {
-      if (_isCancelZoneActive) {
-        _updateVoiceUi(
-          (current) => current.copyWith(isCancelZoneActive: false),
-        );
-      }
-      return;
-    }
-
-    final origin = renderObject.localToGlobal(Offset.zero);
-    final rect = origin & renderObject.size;
-    final enterRect = rect.deflate(_cancelEnterInset);
-    final exitRect = rect.inflate(_cancelExitInset);
-    final nextValue = _isCancelZoneActive
-        ? exitRect.contains(globalPosition)
-        : enterRect.contains(globalPosition);
-
-    if (nextValue == _isCancelZoneActive || !mounted) {
-      return;
-    }
-
-    _updateVoiceUi(
-      (current) => current.copyWith(isCancelZoneActive: nextValue),
-    );
-  }
-
-  void _maybeCompleteReleasedVoiceSession() {
-    _maybeCompleteReleasedVoiceSessionInternal();
-  }
-
-  void _maybeCompleteReleasedVoiceSessionInternal({bool force = false}) {
-    final cancel = _pendingVoiceCancel;
-    if (cancel == null ||
-        _isVoiceHoldActive ||
-        (!force && (_speech.isListening || _isListening))) {
-      return;
-    }
-
-    _completeReleasedVoiceSession(cancel: cancel);
-  }
-
-  void _scheduleVoiceReleaseFallback(int releaseSessionId) {
-    _voiceReleaseFallbackTimer?.cancel();
-    _voiceReleaseFallbackTimer = Timer(const Duration(milliseconds: 900), () {
-      if (!mounted || releaseSessionId != _voiceSessionId) {
-        return;
-      }
-
-      if (_pendingVoiceCancel == null || _isVoiceHoldActive) {
-        return;
-      }
-
-      _updateVoiceUi(
-        (current) => current.copyWith(
-          isListening: false,
-          isVoiceTransitioning: false,
-          soundLevel: 0,
-        ),
-      );
-      _stopVoiceBars();
-      _maybeCompleteReleasedVoiceSessionInternal(force: true);
-    });
-  }
-
-  void _completeReleasedVoiceSession({required bool cancel}) {
-    if (_isCreatingVoiceMemo) {
-      return;
-    }
-
-    final transcript = _voiceDraftText.trim();
-    _voiceSessionId++;
-    _pendingVoiceCancel = null;
-
-    if (cancel || transcript.isEmpty) {
-      _resetVoiceOverlay(clearText: true);
-      return;
-    }
-
-    _resetVoiceOverlay(clearText: false);
-    unawaited(_createMemoFromVoice(transcript));
   }
 
   Future<void> _startVoiceMemoCreation() async {
     if (_isVoiceTransitioning ||
         _isCreatingVoiceMemo ||
-        _isListening ||
-        _isVoiceHoldActive) {
+        _isRecordingSessionActive) {
       return;
     }
 
-    final ready = await _ensureSpeechReady();
-    if (!ready) {
-      _showMessage('Voice input is not available on this device.');
+    final hasPermission = await _audioRecorder.hasPermission();
+    if (!hasPermission) {
+      _showMessage(
+        'Microphone permission is unavailable. Please check system settings.',
+      );
       return;
     }
 
     if (!mounted) {
       return;
     }
-
-    final sessionId = ++_voiceSessionId;
-    _voiceReleaseFallbackTimer?.cancel();
-    _voiceReleaseFallbackTimer = null;
-    _pendingVoiceCancel = null;
-    _voiceDraftText = '';
     _updateVoiceUi(
       (current) => current.copyWith(
+        isListening: false,
         isVoiceTransitioning: true,
-        isVoiceHoldActive: true,
-        isCancelZoneActive: false,
+        isRecordingSessionActive: true,
+        isCreatingVoiceMemo: false,
         soundLevel: 0,
+        elapsed: Duration.zero,
       ),
     );
     _startVoiceBars();
 
     try {
-      await _speech.listen(
-        listenFor: const Duration(minutes: 5),
-        pauseFor: const Duration(minutes: 5),
-        listenOptions: stt.SpeechListenOptions(
-          listenMode: stt.ListenMode.dictation,
-          partialResults: true,
+      final directory = await getApplicationDocumentsDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final path =
+          '${directory.path}${Platform.pathSeparator}voice_memo_$timestamp.m4a';
+
+      await _audioRecorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.aacLc,
+          bitRate: 96000,
+          sampleRate: 44100,
+          numChannels: 1,
+          noiseSuppress: true,
+          echoCancel: true,
         ),
-        onSoundLevelChange: (level) {
-          if (!mounted || sessionId != _voiceSessionId) {
-            return;
-          }
-          _updateVoiceUi((current) => current.copyWith(soundLevel: level));
-        },
-        onResult: (result) {
-          if (!mounted || sessionId != _voiceSessionId) {
-            return;
-          }
-          _voiceDraftText = result.recognizedWords.trim();
-        },
+        path: path,
       );
 
-      if (!mounted || sessionId != _voiceSessionId) {
+      if (!mounted) {
         return;
       }
 
-      _updateVoiceUi((current) => current.copyWith(isListening: true));
-    } catch (_) {
-      _voiceSessionId++;
-      _resetVoiceOverlay(clearText: true);
-      _showMessage('Unable to start voice input. Please try again.');
-    } finally {
-      if (mounted && sessionId == _voiceSessionId) {
+      _activeRecordingPath = path;
+      _recordingStartedAt = DateTime.now();
+      _recordingAmplitudeSub?.cancel();
+      _recordingAmplitudeSub = _audioRecorder
+          .onAmplitudeChanged(const Duration(milliseconds: 120))
+          .listen((amplitude) {
+            if (!mounted) {
+              return;
+            }
+            _updateVoiceUi(
+              (current) => current.copyWith(soundLevel: amplitude.current),
+            );
+          });
+      _recordingTimer?.cancel();
+      _recordingTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
+        final startedAt = _recordingStartedAt;
+        if (!mounted || startedAt == null) {
+          return;
+        }
         _updateVoiceUi(
-          (current) => current.copyWith(isVoiceTransitioning: false),
+          (current) =>
+              current.copyWith(elapsed: DateTime.now().difference(startedAt)),
         );
-        _maybeCompleteReleasedVoiceSession();
-      }
+      });
+
+      _updateVoiceUi(
+        (current) =>
+            current.copyWith(isListening: true, isVoiceTransitioning: false),
+      );
+    } catch (_) {
+      _resetVoiceOverlay();
+      _showMessage('Unable to start recording. Please try again.');
     }
   }
 
-  Future<void> _stopVoiceMemoCreation({required bool cancel}) async {
-    if ((!_isVoiceHoldActive && _pendingVoiceCancel == null) ||
-        _isCreatingVoiceMemo) {
+  Future<void> _stopVoiceMemoCreation({required bool save}) async {
+    if (!_isRecordingSessionActive || _isCreatingVoiceMemo) {
       return;
     }
 
     _updateVoiceUi(
       (current) => current.copyWith(
-        isVoiceHoldActive: false,
-        isCancelZoneActive: false,
+        isListening: false,
         isVoiceTransitioning: true,
+        isRecordingSessionActive: false,
+        soundLevel: 0,
       ),
     );
-    _pendingVoiceCancel = cancel;
+    _stopVoiceBars();
 
-    final releaseSessionId = _voiceSessionId;
+    final duration = _recordingStartedAt == null
+        ? _recordingElapsed
+        : DateTime.now().difference(_recordingStartedAt!);
+    String? audioPath;
 
     try {
-      if (_speech.isListening || _isListening) {
-        if (cancel) {
-          await _speech.cancel();
-        } else {
-          await _speech.stop();
-        }
-
-        Future<void>.delayed(const Duration(milliseconds: 180), () {
-          if (!mounted || releaseSessionId != _voiceSessionId) {
-            return;
-          }
-          _maybeCompleteReleasedVoiceSession();
-        });
+      if (save) {
+        audioPath = await _audioRecorder.stop();
       } else {
-        _maybeCompleteReleasedVoiceSession();
+        await _audioRecorder.cancel();
       }
     } catch (_) {
-      _pendingVoiceCancel = true;
-      _maybeCompleteReleasedVoiceSession();
-      if (!cancel) {
-        _showMessage('Voice input stopped unexpectedly. Please try again.');
-      }
+      audioPath = _activeRecordingPath;
     } finally {
-      if (releaseSessionId == _voiceSessionId && _pendingVoiceCancel != null) {
-        _scheduleVoiceReleaseFallback(releaseSessionId);
-      }
+      _recordingTimer?.cancel();
+      _recordingTimer = null;
+      await _recordingAmplitudeSub?.cancel();
+      _recordingAmplitudeSub = null;
     }
-  }
 
-  void _handleSpeechStatus(String status) {
     if (!mounted) {
       return;
     }
 
-    if (status == stt.SpeechToText.listeningStatus) {
-      _updateVoiceUi(
-        (current) =>
-            current.copyWith(isListening: true, isVoiceTransitioning: false),
-      );
-      _startVoiceBars();
+    if (!save) {
+      _resetVoiceOverlay();
       return;
     }
 
-    if (status == stt.SpeechToText.doneStatus ||
-        status == stt.SpeechToText.notListeningStatus) {
-      _voiceReleaseFallbackTimer?.cancel();
-      _voiceReleaseFallbackTimer = null;
-      _updateVoiceUi(
-        (current) => current.copyWith(isListening: false, soundLevel: 0),
-      );
-      _stopVoiceBars();
-      _maybeCompleteReleasedVoiceSession();
-    }
-  }
-
-  void _handleSpeechError(dynamic error) {
-    if (!mounted) {
+    final path = audioPath ?? _activeRecordingPath;
+    if (path == null || path.isEmpty || !File(path).existsSync()) {
+      _resetVoiceOverlay();
+      _showMessage('No recording file was created. Please try again.');
       return;
     }
 
-    final wasUserCanceled = _pendingVoiceCancel == true;
-    _voiceSessionId++;
-    _voiceReleaseFallbackTimer?.cancel();
-    _voiceReleaseFallbackTimer = null;
-    if (wasUserCanceled) {
-      _resetVoiceOverlay(clearText: true);
-      return;
-    }
-
-    _pendingVoiceCancel = true;
-    _resetVoiceOverlay(clearText: true);
-
-    final errorMessage = '${error?.errorMsg ?? error}'.toLowerCase();
-    final isPermissionError =
-        errorMessage.contains('permission') ||
-        errorMessage.contains('recognizer_disabled');
-
-    if (isPermissionError) {
-      _showMessage(
-        'Microphone or speech permission is unavailable. Please check system settings.',
-      );
-      return;
-    }
-
-    if (error?.permanent != true) {
-      _showMessage('Voice input stopped. Please try again.');
-    }
+    await _createVoiceMemoFromRecording(path, duration: duration);
   }
 
   Future<void> _openNewMemo() async {
-    if (_isVoiceTransitioning || _isCreatingVoiceMemo || _isVoiceHoldActive) {
+    if (_isVoiceTransitioning ||
+        _isCreatingVoiceMemo ||
+        _isRecordingSessionActive) {
       return;
     }
 
@@ -437,31 +282,15 @@ class _MemoScreenState extends State<MemoScreen>
     );
   }
 
-  String _fallbackTitle(String body) {
-    final trimmedBody = body.trim();
-    if (trimmedBody.isEmpty) {
-      return 'Untitled Memo';
-    }
-
-    final firstLine = trimmedBody.split('\n').first.trim();
-    if (firstLine.length <= 20) {
-      return firstLine;
-    }
-    return firstLine.substring(0, 20).trimRight();
-  }
-
-  Future<void> _createMemoFromVoice(String transcript) async {
+  Future<void> _createVoiceMemoFromRecording(
+    String audioPath, {
+    required Duration duration,
+  }) async {
     final user = FirebaseAuth.instance.currentUser;
-    final body = transcript.trim();
 
     if (user == null) {
-      _resetVoiceOverlay(clearText: false);
+      _resetVoiceOverlay();
       _showMessage('Please sign in to create a memo.');
-      return;
-    }
-
-    if (body.isEmpty) {
-      _resetVoiceOverlay(clearText: true);
       return;
     }
 
@@ -469,14 +298,48 @@ class _MemoScreenState extends State<MemoScreen>
       return;
     }
 
-    _updateVoiceUi((current) => current.copyWith(isCreatingVoiceMemo: true));
+    _updateVoiceUi(
+      (current) => current.copyWith(
+        isListening: false,
+        isVoiceTransitioning: false,
+        isRecordingSessionActive: false,
+        isCreatingVoiceMemo: true,
+        soundLevel: 0,
+        elapsed: duration,
+      ),
+    );
 
     try {
-      final title = _fallbackTitle(body);
-      final docRef = await FirebaseFirestore.instance.collection('memos').add({
+      final docRef = FirebaseFirestore.instance.collection('memos').doc();
+      final createdAt = DateTime.now();
+      final title = _voiceMemoAutoTitle(createdAt);
+      var audioUrl = '';
+      var storagePath = '';
+      var uploadFailed = false;
+
+      try {
+        storagePath = 'voice_memos/${user.uid}/${docRef.id}.m4a';
+        final storageRef = FirebaseStorage.instance.ref(storagePath);
+        await storageRef.putFile(
+          File(audioPath),
+          SettableMetadata(contentType: 'audio/mp4'),
+        );
+        audioUrl = await storageRef.getDownloadURL();
+      } catch (_) {
+        uploadFailed = true;
+        storagePath = '';
+      }
+
+      await docRef.set({
         'userId': user.uid,
+        'memoType': 'voice',
         'title': title,
-        'body': body,
+        'body': '',
+        'audioUrl': audioUrl,
+        'audioStoragePath': storagePath,
+        'localAudioPath': audioPath,
+        'audioDurationMillis': duration.inMilliseconds,
+        'createdAtLocalMillis': createdAt.millisecondsSinceEpoch,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
@@ -485,14 +348,26 @@ class _MemoScreenState extends State<MemoScreen>
         return;
       }
 
-      _voiceDraftText = '';
-      _updateVoiceUi((current) => current.copyWith(isCreatingVoiceMemo: false));
-      _resetVoiceOverlay(clearText: true);
+      _resetVoiceOverlay();
+
+      if (uploadFailed) {
+        _showMessage(
+          'Voice memo saved locally. Audio upload will need to be retried later.',
+        );
+      }
 
       await Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) =>
-              MemoDetailScreen(memoId: docRef.id, title: title, body: body),
+          builder: (_) => RecordedVoiceMemoDetailScreen(
+            memoId: docRef.id,
+            title: title,
+            body: '',
+            audioUrl: audioUrl,
+            localAudioPath: audioPath,
+            audioStoragePath: storagePath,
+            duration: duration,
+            createdAt: createdAt,
+          ),
         ),
       );
     } catch (_) {
@@ -501,9 +376,18 @@ class _MemoScreenState extends State<MemoScreen>
       }
 
       _updateVoiceUi((current) => current.copyWith(isCreatingVoiceMemo: false));
-      _resetVoiceOverlay(clearText: false);
-      _showMessage('Failed to create voice memo. Please try again.');
+      _resetVoiceOverlay();
+      _showMessage('Failed to create recorded memo. Please try again.');
     }
+  }
+
+  static String _voiceMemoAutoTitle(DateTime createdAt) {
+    return '${DateFormat('d MMMM yyyy').format(createdAt.toLocal())} recording';
+  }
+
+  static bool _isUnsetVoiceTitle(String title) {
+    final normalized = title.trim();
+    return normalized.isEmpty || normalized == 'Voice Memo';
   }
 
   Stream<List<MemoRecord>> _memoStream() {
@@ -550,6 +434,12 @@ class _MemoScreenState extends State<MemoScreen>
           displayTitle: memo.displayTitle,
           dateLabel: _cardDateLabel(memo.createdAt),
           body: memo.body,
+          createdAt: memo.createdAt,
+          isVoiceMemo: memo.isVoiceMemo,
+          audioUrl: memo.audioUrl,
+          localAudioPath: memo.localAudioPath,
+          audioStoragePath: memo.audioStoragePath,
+          audioDuration: memo.audioDuration,
         ),
       );
     }
@@ -576,7 +466,7 @@ class _MemoScreenState extends State<MemoScreen>
     if (difference == 1) {
       return 'Yesterday';
     }
-    return DateFormat('yyyy.MM.dd').format(localDate);
+    return DateFormat('d MMMM yyyy').format(localDate);
   }
 
   Future<void> _confirmAndDeleteMemo(_MemoItem item) async {
@@ -601,6 +491,14 @@ class _MemoScreenState extends State<MemoScreen>
     });
 
     try {
+      if (item.audioStoragePath.isNotEmpty) {
+        try {
+          await FirebaseStorage.instance.ref(item.audioStoragePath).delete();
+        } catch (_) {
+          // The memo itself should still be removable if storage cleanup fails.
+        }
+      }
+
       await FirebaseFirestore.instance
           .collection('memos')
           .doc(item.id)
@@ -804,15 +702,32 @@ class _MemoScreenState extends State<MemoScreen>
       });
     }
 
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => MemoDetailScreen(
-          memoId: item.id,
-          title: item.title,
-          body: item.body,
+    if (item.isVoiceMemo) {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => RecordedVoiceMemoDetailScreen(
+            memoId: item.id,
+            title: item.title,
+            body: item.body,
+            audioUrl: item.audioUrl,
+            localAudioPath: item.localAudioPath,
+            audioStoragePath: item.audioStoragePath,
+            duration: item.audioDuration,
+            createdAt: item.createdAt,
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => MemoDetailScreen(
+            memoId: item.id,
+            title: item.title,
+            body: item.body,
+          ),
+        ),
+      );
+    }
 
     if (!mounted || _deleteActionMemoId == null) {
       return;
@@ -833,7 +748,7 @@ class _MemoScreenState extends State<MemoScreen>
     if (difference == 0 || difference == 1) {
       return DateFormat('h:mm a').format(localDate);
     }
-    return DateFormat('yyyy.MM.dd').format(localDate);
+    return DateFormat('dd/MM/yyyy').format(localDate);
   }
 
   @override
@@ -841,8 +756,8 @@ class _MemoScreenState extends State<MemoScreen>
     final mediaPadding = MediaQuery.of(context).padding;
     final statusBarHeight = mediaPadding.top;
     final bottomInset = mediaPadding.bottom;
-    final fabBottomOffset = bottomInset + 112;
-    final contentBottomSpacing = bottomInset + 94;
+    final actionBottomOffset = bottomInset + 102;
+    final contentBottomSpacing = bottomInset + 122;
     final staticBody = _buildStaticBody(
       statusBarHeight: statusBarHeight,
       contentBottomSpacing: contentBottomSpacing,
@@ -871,13 +786,14 @@ class _MemoScreenState extends State<MemoScreen>
                           right: 0,
                           child: _buildHeader(),
                         ),
-                        Positioned(
-                          right: 24,
-                          bottom: fabBottomOffset,
-                          child: _buildFab(),
-                        ),
                         if (voiceUi.isOverlayVisible)
                           Positioned.fill(child: _buildVoiceComposerOverlay()),
+                        Positioned(
+                          left: 20,
+                          right: 20,
+                          bottom: actionBottomOffset,
+                          child: _buildBottomActionRow(),
+                        ),
                       ],
                     ),
                   ),
@@ -1001,7 +917,7 @@ class _MemoScreenState extends State<MemoScreen>
             child: Padding(
               padding: EdgeInsets.symmetric(horizontal: 32),
               child: Text(
-                'No memos yet. Tap the plus button to create one.',
+                'No memos yet. Use the center record button or the note button to create one.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Color(0xFF94A3B8),
@@ -1070,291 +986,187 @@ class _MemoScreenState extends State<MemoScreen>
     );
   }
 
-  Widget _buildFab() {
+  Widget _buildBottomActionRow() {
+    return SizedBox(
+      height: 84,
+      child: _isVoiceOverlayVisible
+          ? Align(alignment: Alignment.center, child: _buildRecordButton())
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _buildMemoActionButton(
+                  icon: Icons.edit_note_rounded,
+                  semanticLabel: 'Text memo',
+                  onTap: _openNewMemo,
+                  backgroundColor: Colors.white.withValues(alpha: 0.96),
+                  iconColor: primaryColor,
+                ),
+                const SizedBox(width: 18),
+                _buildMemoActionButton(
+                  icon: Icons.mic_rounded,
+                  semanticLabel: 'Voice memo',
+                  onTap: _startVoiceMemoCreation,
+                  backgroundColor: const Color(0xFFFFF4C7),
+                  iconColor: const Color(0xFF9A6B00),
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _buildRecordButton() {
     final isBusy = _isVoiceTransitioning || _isCreatingVoiceMemo;
+    final isRecording = _isRecordingSessionActive;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: isBusy || _isVoiceOverlayVisible ? null : _openNewMemo,
-      onLongPressStart: isBusy || _isVoiceOverlayVisible
+      onTap: isBusy
           ? null
-          : (_) => _startVoiceMemoCreation(),
-      onLongPressMoveUpdate: _isVoiceOverlayVisible
-          ? (details) => _updateCancelZoneState(details.globalPosition)
-          : null,
-      onLongPressEnd: _isVoiceOverlayVisible
-          ? (details) {
-              _updateCancelZoneState(details.globalPosition);
-              _stopVoiceMemoCreation(cancel: _isCancelZoneActive);
-            }
-          : null,
-      onLongPressCancel: _isVoiceOverlayVisible
-          ? () => _stopVoiceMemoCreation(cancel: true)
-          : null,
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 140),
-        opacity: _isVoiceOverlayVisible ? 0.02 : 1,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          width: 64,
-          height: 64,
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              colors: [accentColor, secondaryAccent],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+          : isRecording
+          ? () => _stopVoiceMemoCreation(save: true)
+          : _startVoiceMemoCreation,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: isRecording ? 80 : 72,
+        height: isRecording ? 80 : 72,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: isRecording
+                ? const [Color(0xFFF87171), Color(0xFFDC2626)]
+                : const [accentColor, secondaryAccent],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: Colors.white.withValues(alpha: isRecording ? 0.92 : 0.66),
+            width: isRecording ? 4 : 3,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: (isRecording ? const Color(0xFFDC2626) : accentColor)
+                  .withValues(alpha: 0.28),
+              blurRadius: isRecording ? 30 : 24,
+              offset: const Offset(0, 12),
             ),
+          ],
+        ),
+        child: Center(
+          child: isBusy
+              ? const SizedBox(
+                  width: 26,
+                  height: 26,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.6,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              : Icon(
+                  isRecording ? Icons.stop_rounded : Icons.mic_rounded,
+                  size: isRecording ? 34 : 32,
+                  color: Colors.white,
+                ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMemoActionButton({
+    required IconData icon,
+    required String semanticLabel,
+    required VoidCallback onTap,
+    required Color backgroundColor,
+    required Color iconColor,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Semantics(
+        label: semanticLabel,
+        button: true,
+        child: Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: backgroundColor,
             shape: BoxShape.circle,
+            border: Border.all(color: Colors.white.withValues(alpha: 0.86)),
             boxShadow: [
               BoxShadow(
-                color: accentColor.withValues(alpha: 0.3),
-                blurRadius: 25,
-                offset: const Offset(0, 12),
+                color: const Color(0xFF0F172A).withValues(alpha: 0.08),
+                blurRadius: 18,
+                offset: const Offset(0, 8),
               ),
             ],
           ),
-          child: Center(
-            child: isBusy
-                ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.4,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                    ),
-                  )
-                : const Icon(Icons.add_rounded, size: 34, color: Colors.white),
-          ),
+          child: Icon(icon, color: iconColor, size: 24),
         ),
       ),
     );
   }
 
   Widget _buildVoiceComposerOverlay() {
-    final releaseLabel = _isCancelZoneActive
-        ? 'Release to cancel'
-        : 'Release to save';
-    final helperLabel = _isCancelZoneActive
-        ? 'Lift your finger now to cancel this memo.'
-        : 'Keep holding and slide left to cancel.';
-    final rightLabel = _isVoiceTransitioning && !_isListening
-        ? 'Preparing'
-        : 'New Memo';
-
-    return IgnorePointer(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          ClipRect(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
-              child: Container(
-                color: const Color(0xFFF8F7F6).withValues(alpha: 0.32),
-              ),
-            ),
-          ),
-          Container(color: const Color(0xFF0F172A).withValues(alpha: 0.08)),
-          Align(
-            alignment: const Alignment(0, -0.08),
-            child: RepaintBoundary(child: _buildVoiceWaveBubble()),
-          ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: RepaintBoundary(
-              child: _buildVoiceBottomTray(
-                releaseLabel: releaseLabel,
-                helperLabel: helperLabel,
-                rightLabel: rightLabel,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildVoiceWaveBubble() {
-    final bubbleColor = _isCancelZoneActive
-        ? const Color(0xFFFDE8E6)
-        : const Color(0xFFFFF1C9);
-    final waveColor = _isCancelZoneActive
-        ? const Color(0xFFDC2626)
-        : const Color(0xFF9A6B00);
+    final statusLabel = _isCreatingVoiceMemo
+        ? 'Saving your voice memo'
+        : _isVoiceTransitioning
+        ? (_isRecordingSessionActive
+              ? 'Preparing recording'
+              : 'Finishing recording')
+        : _isListening
+        ? 'Recording in progress'
+        : 'Ready to save';
+    final helperLabel = _isCreatingVoiceMemo
+        ? 'Your audio is being attached before the detail page opens.'
+        : _isRecordingSessionActive
+        ? 'Tap the center button again to finish and open the voice memo.'
+        : 'Tap the microphone button to start a new recording.';
 
     return Stack(
-      clipBehavior: Clip.none,
-      alignment: Alignment.bottomCenter,
+      fit: StackFit.expand,
       children: [
-        Container(
-          width: 236,
-          height: 128,
-          decoration: BoxDecoration(
-            color: bubbleColor.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(32),
-            boxShadow: [
-              BoxShadow(
-                color: waveColor.withValues(alpha: 0.14),
-                blurRadius: 26,
-                offset: const Offset(0, 12),
-              ),
-            ],
-          ),
-          child: Center(
-            child: _VoiceBars(
-              animation: _voiceBarsController,
-              level: _soundLevel,
-              color: waveColor,
+        ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 8, sigmaY: 8),
+            child: Container(
+              color: const Color(0xFFF8F7F6).withValues(alpha: 0.32),
             ),
           ),
         ),
-        Positioned(
-          bottom: -9,
-          child: Transform.rotate(
-            angle: math.pi / 4,
-            child: Container(
-              width: 18,
-              height: 18,
-              decoration: BoxDecoration(
-                color: bubbleColor.withValues(alpha: 0.96),
-                borderRadius: BorderRadius.circular(5),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildVoiceBottomTray({
-    required String releaseLabel,
-    required String helperLabel,
-    required String rightLabel,
-  }) {
-    return SizedBox(
-      width: double.infinity,
-      height: 244,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          Positioned(
-            left: -22,
-            right: -22,
-            bottom: 0,
-            child: Container(
-              height: 172,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.82),
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(220),
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF0F172A).withValues(alpha: 0.08),
-                    blurRadius: 26,
-                    offset: const Offset(0, -6),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Positioned(
-            left: 22,
-            bottom: 118,
-            child: SizedBox(
-              key: _cancelVoiceZoneKey,
-              width: 160,
-              height: 76,
-              child: Transform.rotate(
-                angle: -0.24,
-                child: Container(
-                  width: 152,
-                  height: 68,
-                  decoration: BoxDecoration(
-                    color: _isCancelZoneActive
-                        ? const Color(0xFFFDE8E6).withValues(alpha: 0.98)
-                        : const Color(0xFFF8F2E6).withValues(alpha: 0.96),
-                    borderRadius: BorderRadius.circular(999),
-                    border: Border.all(
-                      color: _isCancelZoneActive
-                          ? const Color(0xFFFCA5A5)
-                          : Colors.white.withValues(alpha: 0.62),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color:
-                            (_isCancelZoneActive
-                                    ? const Color(0xFFEF4444)
-                                    : const Color(0xFFFAC638))
-                                .withValues(alpha: 0.08),
-                        blurRadius: 18,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Text(
-                      'Cancel',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        color: _isCancelZoneActive
-                            ? const Color(0xFFB91C1C)
-                            : const Color(0xFF475569),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            right: 22,
-            bottom: 118,
-            child: Transform.rotate(
-              angle: 0.24,
-              child: Container(
-                width: 158,
-                height: 68,
-                decoration: BoxDecoration(
-                  color: _isCancelZoneActive
-                      ? Colors.white.withValues(alpha: 0.6)
-                      : const Color(0xFFFFF3CD).withValues(alpha: 0.96),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.62),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFFFAC638).withValues(alpha: 0.08),
-                      blurRadius: 18,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Center(
-                  child: Text(
-                    rightLabel,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: _isCancelZoneActive
-                          ? const Color(0xFF94A3B8)
-                          : const Color(0xFF9A6B00),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 56,
+        Container(color: const Color(0xFF0F172A).withValues(alpha: 0.08)),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 96, 24, 188),
             child: Column(
-              mainAxisSize: MainAxisSize.min,
               children: [
+                if (_isRecordingSessionActive && !_isCreatingVoiceMemo)
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: _isVoiceTransitioning
+                          ? null
+                          : () => _stopVoiceMemoCreation(save: false),
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      label: const Text('Cancel'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF475569),
+                        backgroundColor: Colors.white.withValues(alpha: 0.88),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                      ),
+                    ),
+                  ),
+                const Spacer(),
+                RepaintBoundary(child: _buildVoiceWaveBubble()),
+                const SizedBox(height: 18),
+                _buildRecordingDurationCard(),
+                const SizedBox(height: 18),
                 Text(
-                  releaseLabel,
+                  statusLabel,
+                  textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w900,
@@ -1376,9 +1188,156 @@ class _MemoScreenState extends State<MemoScreen>
               ],
             ),
           ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVoiceWaveBubble() {
+    final bubbleColor = _isCreatingVoiceMemo
+        ? const Color(0xFFFFF8E3)
+        : _isRecordingSessionActive
+        ? const Color(0xFFFFF1C9)
+        : const Color(0xFFF8FAFC);
+    final waveColor = _isRecordingSessionActive
+        ? const Color(0xFF9A6B00)
+        : accentColor;
+
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.bottomCenter,
+      children: [
+        Container(
+          width: 236,
+          height: 128,
+          decoration: BoxDecoration(
+            color: bubbleColor.withValues(alpha: 0.96),
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: [
+              BoxShadow(
+                color: waveColor.withValues(alpha: 0.14),
+                blurRadius: 26,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Center(
+            child: _isCreatingVoiceMemo
+                ? const SizedBox(
+                    width: 38,
+                    height: 38,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 3,
+                      valueColor: AlwaysStoppedAnimation<Color>(accentColor),
+                    ),
+                  )
+                : _isRecordingSessionActive
+                ? _VoiceBars(
+                    animation: _voiceBarsController,
+                    level: _soundLevel,
+                    color: waveColor,
+                  )
+                : const Icon(
+                    Icons.mic_none_rounded,
+                    size: 40,
+                    color: accentColor,
+                  ),
+          ),
+        ),
+        Positioned(
+          bottom: -9,
+          child: Transform.rotate(
+            angle: math.pi / 4,
+            child: Container(
+              width: 18,
+              height: 18,
+              decoration: BoxDecoration(
+                color: bubbleColor.withValues(alpha: 0.96),
+                borderRadius: BorderRadius.circular(5),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecordingDurationCard() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: Colors.white),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: 0.08),
+            blurRadius: 24,
+            offset: const Offset(0, 12),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: _isListening ? const Color(0xFFEF4444) : accentColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                _isRecordingSessionActive ? 'Recording audio' : 'Voice memo',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF475569),
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Center(
+            child: Text(
+              _formatDuration(_recordingElapsed),
+              style: const TextStyle(
+                fontSize: 34,
+                fontWeight: FontWeight.w900,
+                color: primaryColor,
+                height: 1,
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          const Center(
+            child: Text(
+              'You can add typed notes on the detail page after saving.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF64748B),
+                height: 1.45,
+              ),
+            ),
+          ),
         ],
       ),
     );
+  }
+
+  String _formatDuration(Duration duration) {
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 }
 
@@ -1386,38 +1345,41 @@ class _VoiceUiState {
   const _VoiceUiState({
     this.isListening = false,
     this.isVoiceTransitioning = false,
-    this.isVoiceHoldActive = false,
-    this.isCancelZoneActive = false,
+    this.isRecordingSessionActive = false,
     this.isCreatingVoiceMemo = false,
     this.soundLevel = 0,
+    this.elapsed = Duration.zero,
   });
 
   final bool isListening;
   final bool isVoiceTransitioning;
-  final bool isVoiceHoldActive;
-  final bool isCancelZoneActive;
+  final bool isRecordingSessionActive;
   final bool isCreatingVoiceMemo;
   final double soundLevel;
+  final Duration elapsed;
 
   bool get isOverlayVisible {
-    return isListening || isVoiceTransitioning || isVoiceHoldActive;
+    return isRecordingSessionActive ||
+        isVoiceTransitioning ||
+        isCreatingVoiceMemo;
   }
 
   _VoiceUiState copyWith({
     bool? isListening,
     bool? isVoiceTransitioning,
-    bool? isVoiceHoldActive,
-    bool? isCancelZoneActive,
+    bool? isRecordingSessionActive,
     bool? isCreatingVoiceMemo,
     double? soundLevel,
+    Duration? elapsed,
   }) {
     return _VoiceUiState(
       isListening: isListening ?? this.isListening,
       isVoiceTransitioning: isVoiceTransitioning ?? this.isVoiceTransitioning,
-      isVoiceHoldActive: isVoiceHoldActive ?? this.isVoiceHoldActive,
-      isCancelZoneActive: isCancelZoneActive ?? this.isCancelZoneActive,
+      isRecordingSessionActive:
+          isRecordingSessionActive ?? this.isRecordingSessionActive,
       isCreatingVoiceMemo: isCreatingVoiceMemo ?? this.isCreatingVoiceMemo,
       soundLevel: soundLevel ?? this.soundLevel,
+      elapsed: elapsed ?? this.elapsed,
     );
   }
 
@@ -1430,20 +1392,20 @@ class _VoiceUiState {
     return other is _VoiceUiState &&
         other.isListening == isListening &&
         other.isVoiceTransitioning == isVoiceTransitioning &&
-        other.isVoiceHoldActive == isVoiceHoldActive &&
-        other.isCancelZoneActive == isCancelZoneActive &&
+        other.isRecordingSessionActive == isRecordingSessionActive &&
         other.isCreatingVoiceMemo == isCreatingVoiceMemo &&
-        other.soundLevel == soundLevel;
+        other.soundLevel == soundLevel &&
+        other.elapsed == elapsed;
   }
 
   @override
   int get hashCode => Object.hash(
     isListening,
     isVoiceTransitioning,
-    isVoiceHoldActive,
-    isCancelZoneActive,
+    isRecordingSessionActive,
     isCreatingVoiceMemo,
     soundLevel,
+    elapsed,
   );
 }
 
@@ -1498,12 +1460,22 @@ class MemoRecord {
     required this.title,
     required this.body,
     required this.createdAt,
+    required this.isVoiceMemo,
+    required this.audioUrl,
+    required this.localAudioPath,
+    required this.audioStoragePath,
+    required this.audioDuration,
   });
 
   final String id;
   final String title;
   final String body;
   final DateTime createdAt;
+  final bool isVoiceMemo;
+  final String audioUrl;
+  final String localAudioPath;
+  final String audioStoragePath;
+  final Duration audioDuration;
 
   String get displayTitle {
     final trimmedTitle = title.trim();
@@ -1513,7 +1485,7 @@ class MemoRecord {
 
     final trimmedBody = body.trim();
     if (trimmedBody.isEmpty) {
-      return 'Untitled Memo';
+      return isVoiceMemo ? 'Voice Memo' : 'Untitled Memo';
     }
 
     final firstLine = trimmedBody.split('\n').first.trim();
@@ -1535,14 +1507,31 @@ class MemoRecord {
   ) {
     final data = doc.data();
     final timestamp = data['createdAt'];
+    final localTimestamp = data['createdAtLocalMillis'];
+    final durationMillis = data['audioDurationMillis'];
+    final createdAt = timestamp is Timestamp
+        ? timestamp.toDate()
+        : localTimestamp is int
+        ? DateTime.fromMillisecondsSinceEpoch(localTimestamp)
+        : DateTime.fromMillisecondsSinceEpoch(0);
+    final isVoiceMemo =
+        data['memoType'] == 'voice' || data['inputMode'] == 'voice';
+    final title = (data['title'] as String?) ?? '';
 
     return MemoRecord(
       id: doc.id,
-      title: (data['title'] as String?) ?? '',
+      title: isVoiceMemo && _MemoScreenState._isUnsetVoiceTitle(title)
+          ? _MemoScreenState._voiceMemoAutoTitle(createdAt)
+          : title,
       body: (data['body'] as String?) ?? '',
-      createdAt: timestamp is Timestamp
-          ? timestamp.toDate()
-          : DateTime.fromMillisecondsSinceEpoch(0),
+      createdAt: createdAt,
+      isVoiceMemo: isVoiceMemo,
+      audioUrl: (data['audioUrl'] as String?) ?? '',
+      localAudioPath: (data['localAudioPath'] as String?) ?? '',
+      audioStoragePath: (data['audioStoragePath'] as String?) ?? '',
+      audioDuration: Duration(
+        milliseconds: durationMillis is int ? durationMillis : 0,
+      ),
     );
   }
 }
@@ -1560,6 +1549,12 @@ class _MemoItem {
   final String displayTitle;
   final String dateLabel;
   final String body;
+  final DateTime createdAt;
+  final bool isVoiceMemo;
+  final String audioUrl;
+  final String localAudioPath;
+  final String audioStoragePath;
+  final Duration audioDuration;
 
   const _MemoItem({
     required this.id,
@@ -1567,6 +1562,12 @@ class _MemoItem {
     required this.displayTitle,
     required this.dateLabel,
     required this.body,
+    required this.createdAt,
+    required this.isVoiceMemo,
+    required this.audioUrl,
+    required this.localAudioPath,
+    required this.audioStoragePath,
+    required this.audioDuration,
   });
 }
 
@@ -1589,16 +1590,33 @@ class _MemoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isVoice = item.isVoiceMemo;
+    final cardColor = isVoice ? const Color(0xFFFFF8E3) : Colors.white;
+    final borderColor = isVoice
+        ? const Color(0x33E2B736)
+        : _MemoScreenState.borderColor;
+    final previewText = item.body.trim().isNotEmpty
+        ? item.body
+        : (isVoice ? _MemoScreenState._voiceMemoEmptyNotePreview : '');
+    final icon = isVoice ? Icons.mic_rounded : Icons.edit_note_rounded;
+    final iconColor = isVoice
+        ? const Color(0xFF9A6B00)
+        : _MemoScreenState.primaryColor;
+    final iconBackground = isVoice
+        ? Colors.white.withValues(alpha: 0.78)
+        : AppTheme.lightBackground.withValues(alpha: 0.72);
+
     final card = Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: _MemoScreenState.borderColor),
+        color: cardColor,
+        border: Border.all(color: borderColor),
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF000000).withValues(alpha: 0.05),
-            blurRadius: 2,
-            offset: const Offset(0, 1),
+            color: (isVoice ? _MemoScreenState.accentColor : Colors.black)
+                .withValues(alpha: isVoice ? 0.1 : 0.05),
+            blurRadius: isVoice ? 18 : 2,
+            offset: Offset(0, isVoice ? 8 : 1),
           ),
         ],
       ),
@@ -1609,6 +1627,16 @@ class _MemoCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: iconBackground,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Icon(icon, color: iconColor, size: 19),
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: Text(
                   item.displayTitle,
@@ -1634,7 +1662,7 @@ class _MemoCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            item.body,
+            previewText,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(
