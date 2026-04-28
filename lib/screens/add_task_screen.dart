@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-
+import '../services/task_invitation_service.dart';
 import '../assets/figma_assets.dart';
 import '../themes/app_theme.dart';
 import 'family_selection_screen.dart';
@@ -337,10 +337,38 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
       final familyId =
           _selectedFamilyId ?? await _loadCurrentFamilyId(user.uid) ?? user.uid;
       final participantIds = _buildParticipantIds(user.uid);
+      final containsSelf = participantIds.contains(user.uid);
+      final invitedUserIds =
+      participantIds.where((id) => id != user.uid).toList();
       final startTime = _buildStartDateTime();
       final endTime = startTime.add(const Duration(hours: 1));
       final now = Timestamp.now();
 
+      List<String> finalParticipantIds = [];
+      List<String> pendingIds = [];
+      List<String> acceptedIds = [];
+
+      /// ✅ Case 1：只有自己
+      if (participantIds.length == 1 && containsSelf) {
+        finalParticipantIds = [user.uid];
+        acceptedIds = [user.uid];
+        pendingIds = [];
+
+        /// ✅ Case 2：包含自己 + 其他人
+      } else if (containsSelf) {
+        finalParticipantIds = [user.uid]; // 自己直接可见
+        acceptedIds = [user.uid];
+        pendingIds = invitedUserIds;
+
+        /// ✅ Case 3：不包含自己
+      } else {
+        finalParticipantIds = [];
+        acceptedIds = [];
+        pendingIds = participantIds;
+      }
+
+
+      final eventRef =
       await FirebaseFirestore.instance.collection('events').add({
         'title': title,
         'description': _notesController.text.trim(),
@@ -348,7 +376,12 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         'familyId': familyId,
         'isAllDay': false,
         'location': '',
-        'participantIds': participantIds,
+
+        'participantIds': finalParticipantIds,
+        'pendingParticipantIds': pendingIds,
+        'acceptedParticipantIds': acceptedIds,
+        'declinedParticipantIds': <String>[],
+
         'reminderMinutes': 0,
         'repeatType': 'none',
         'startTime': Timestamp.fromDate(startTime),
@@ -356,11 +389,34 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
         'status': 'active',
         'createdBy': user.uid,
         'createdAt': now,
+        'updatedAt': now,
       });
 
+      /// 只有存在“邀请别人”的情况才发送通知
+      if (invitedUserIds.isNotEmpty) {
+        await TaskInvitationService.createTaskInvitationNotifications(
+          eventId: eventRef.id,
+          eventTitle: title,
+          creatorId: user.uid,
+          invitedUserIds: containsSelf
+              ? invitedUserIds
+              : participantIds, // Case3：全员邀请
+        );
+      }
+
       if (!mounted) return;
-      _showMessage('Task saved!');
+
       Navigator.of(context).pop(true);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            invitedUserIds.isEmpty
+                ? 'Task saved!'
+                : 'Task saved and invitation sent!',
+          ),
+        ),
+      );
     } catch (e) {
       _showMessage('Failed to save task: $e');
     } finally {

@@ -310,18 +310,29 @@ class _EditTaskScreenState extends State<EditTaskScreen> {
     });
 
     try {
-      await FirebaseFirestore.instance
-          .collection('events')
-          .doc(taskId)
-          .delete();
+      final firestore = FirebaseFirestore.instance;
+
+      final notificationsSnapshot = await firestore
+          .collection('notifications')
+          .where('eventId', isEqualTo: taskId)
+          .get();
+
+      final batch = firestore.batch();
+
+      batch.delete(firestore.collection('events').doc(taskId));
+
+      for (final doc in notificationsSnapshot.docs) {
+        batch.delete(doc.reference);
+      }
+
+      await batch.commit();
 
       if (!mounted) return;
 
       Navigator.of(context).pop(true);
-      return;
     } catch (e) {
       if (!mounted) return;
-      _showMessage('The task update failed, it may have been deleted!');
+      _showMessage('The task delete failed: $e');
     } finally {
       if (mounted) {
         setState(() {

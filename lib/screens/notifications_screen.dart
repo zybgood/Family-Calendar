@@ -1,9 +1,17 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
+import '../services/task_invitation_service.dart';
 import '../themes/app_theme.dart';
 
 class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({Key? key}) : super(key: key);
+
+  static const _primaryColor = Color(0xFF0F172A);
+  static const _mutedColor = Color(0xFF64748B);
+  static const _accentColor = Color(0xFFE2B736);
 
   @override
   Widget build(BuildContext context) {
@@ -36,9 +44,9 @@ class NotificationsScreen extends StatelessWidget {
   Widget _buildAppBar(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppTheme.headerBackground,
-        boxShadow: const [AppTheme.headerShadow],
+        boxShadow: [AppTheme.headerShadow],
       ),
       child: Row(
         children: [
@@ -54,150 +62,266 @@ class NotificationsScreen extends StatelessWidget {
               style: AppTheme.headlineStyle,
             ),
           ),
-          IconButton(
-            onPressed: () {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text('Settings clicked')));
-            },
-            icon: const Icon(Icons.settings, size: 24, color: Colors.black87),
-          ),
+          const SizedBox(width: 48),
         ],
       ),
     );
   }
 
   Widget _buildBody(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      children: [
-        _buildSectionTitle('Today'),
-        _buildJoinRequestCard(context),
-        _buildNewEventCard(context),
-        _buildSectionTitle('Sep 2nd'),
-        _buildModifiedEventCard(context),
-        _buildTaskCompletedCard(context),
-      ],
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return const Center(child: Text('Please sign in first.'));
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('notifications')
+          .where('recipientId', isEqualTo: user.uid)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return const Center(child: Text('Failed to load notifications.'));
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
+        final docs = [
+          ...(snapshot.data?.docs ??
+              const <QueryDocumentSnapshot<Map<String, dynamic>>>[])
+        ]..sort((a, b) {
+          final aTime = a.data()['createdAt'];
+          final bTime = b.data()['createdAt'];
+          final aDate = aTime is Timestamp
+              ? aTime.toDate()
+              : DateTime.fromMillisecondsSinceEpoch(0);
+          final bDate = bTime is Timestamp
+              ? bTime.toDate()
+              : DateTime.fromMillisecondsSinceEpoch(0);
+          return bDate.compareTo(aDate);
+        });
+
+        if (docs.isEmpty) {
+          return const Center(child: Text('No notifications yet.'));
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          itemCount: docs.length,
+          itemBuilder: (context, index) {
+            return _buildNotificationCard(context, docs[index]);
+          },
+        );
+      },
     );
   }
 
-  Widget _buildSectionTitle(String title) {
+  Widget _buildNotificationCard(
+      BuildContext context,
+      QueryDocumentSnapshot<Map<String, dynamic>> doc,
+      ) {
+    final data = doc.data();
+
+    final type = (data['type'] ?? '').toString();
+    final title = (data['title'] ?? 'Notification').toString();
+    final message = (data['message'] ?? '').toString();
+    final eventTitle = (data['eventTitle'] ?? '').toString();
+    final senderName = (data['senderName'] ?? '').toString();
+    final eventId = (data['eventId'] ?? '').toString();
+    final status = (data['status'] ?? '').toString();
+    final isRead = data['isRead'] == true;
+
+    final createdAt =
+    data['createdAt'] is Timestamp ? (data['createdAt'] as Timestamp).toDate() : null;
+
+    final isInvitation = type == 'task_invitation' && status == 'pending';
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Text(
-        title,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-      ),
-    );
-  }
-
-  Widget _buildJoinRequestCard(BuildContext context) {
-    return _notificationCard(
-      context,
-      icon: Icons.person_add,
-      iconBackground: Colors.yellow.shade700,
-      title: 'New member request',
-      subtitle: 'John Doe wants to join the family calendar',
-      action: TextButton(
-        onPressed: () {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Accept clicked')));
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () async {
+          if (!isRead) {
+            await TaskInvitationService.markAsRead(doc.id);
+          }
         },
-        child: const Text('Accept'),
-      ),
-    );
-  }
-
-  Widget _buildNewEventCard(BuildContext context) {
-    return _notificationCard(
-      context,
-      icon: Icons.event,
-      iconBackground: Colors.orange.shade600,
-      title: 'Scheduled: Sunday Roast',
-      subtitle: 'Your family event is set for tomorrow at 6:00 PM',
-      action: TextButton(
-        onPressed: () {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('View clicked')));
-        },
-        child: const Text('View'),
-      ),
-    );
-  }
-
-  Widget _buildModifiedEventCard(BuildContext context) {
-    return _notificationCard(
-      context,
-      icon: Icons.edit,
-      iconBackground: Colors.blue.shade400,
-      title: 'Event changed',
-      subtitle: 'Sunday Roast moved to 7:00 PM',
-      action: TextButton(
-        onPressed: () {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('View clicked')));
-        },
-        child: const Text('View'),
-      ),
-    );
-  }
-
-  Widget _buildTaskCompletedCard(BuildContext context) {
-    return _notificationCard(
-      context,
-      icon: Icons.check_circle,
-      iconBackground: Colors.grey.shade400,
-      title: 'Task completed',
-      subtitle: 'Dad finished grocery shopping',
-      action: TextButton(
-        onPressed: () {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Got it clicked')));
-        },
-        child: const Text('Got it'),
-      ),
-    );
-  }
-
-  Widget _notificationCard(
-    BuildContext context, {
-    required IconData icon,
-    required Color iconBackground,
-    required String title,
-    required String subtitle,
-    required Widget action,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8),
-          ],
-        ),
-        child: ListTile(
-          leading: Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: iconBackground,
-              shape: BoxShape.circle,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isRead ? Colors.white : const Color(0xFFFFFBEB),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isRead
+                  ? const Color(0xFFF1F5F9)
+                  : const Color(0xFFFDE68A),
             ),
-            child: Icon(icon, size: 24, color: Colors.white),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8),
+            ],
           ),
-          title: Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.bold),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  _iconForType(type),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        color: _primaryColor,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  if (!isRead)
+                    Container(
+                      width: 9,
+                      height: 9,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFEF4444),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              if (isInvitation) ...[
+                Text(
+                  '任务名称：${eventTitle.isEmpty ? 'Task' : eventTitle}',
+                  style: const TextStyle(
+                    color: _primaryColor,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '邀请人：${senderName.isEmpty ? 'Member' : senderName}',
+                  style: const TextStyle(color: _mutedColor, fontSize: 13),
+                ),
+              ] else
+                Text(
+                  message,
+                  style: const TextStyle(color: _mutedColor, fontSize: 14),
+                ),
+              if (createdAt != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  DateFormat('MMM d, HH:mm').format(createdAt),
+                  style: const TextStyle(
+                    color: Color(0xFF94A3B8),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+              if (isInvitation) ...[
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => _respond(
+                          context,
+                          notificationId: doc.id,
+                          eventId: eventId,
+                          accepted: false,
+                        ),
+                        child: const Text('拒绝'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _accentColor,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () => _respond(
+                          context,
+                          notificationId: doc.id,
+                          eventId: eventId,
+                          accepted: true,
+                        ),
+                        child: const Text('接受'),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
           ),
-          subtitle: Text(subtitle),
-          trailing: action,
         ),
       ),
+    );
+  }
+
+  Future<void> _respond(
+      BuildContext context, {
+        required String notificationId,
+        required String eventId,
+        required bool accepted,
+      }) async {
+    try {
+      await TaskInvitationService.respondToInvitation(
+        notificationId: notificationId,
+        eventId: eventId,
+        accepted: accepted,
+      );
+
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(accepted ? '已接受任务邀请' : '已拒绝任务邀请')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('操作失败：$e')),
+      );
+    }
+  }
+
+  Widget _iconForType(String type) {
+    IconData icon;
+    Color background;
+
+    switch (type) {
+      case 'task_invitation':
+        icon = Icons.assignment;
+        background = Colors.orange.shade600;
+        break;
+      case 'task_invitation_sent':
+        icon = Icons.schedule_send;
+        background = Colors.blue.shade500;
+        break;
+      case 'task_invitation_accepted':
+        icon = Icons.check_circle;
+        background = Colors.green.shade600;
+        break;
+      case 'task_invitation_declined':
+        icon = Icons.cancel;
+        background = Colors.red.shade500;
+        break;
+      default:
+        icon = Icons.notifications;
+        background = Colors.grey.shade500;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: background,
+        shape: BoxShape.circle,
+      ),
+      child: Icon(icon, size: 22, color: Colors.white),
     );
   }
 }
