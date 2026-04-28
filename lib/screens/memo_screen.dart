@@ -16,6 +16,7 @@ import '../services/onboarding_service.dart';
 import '../themes/app_theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/bottom_navigation_bar.dart';
+import '../widgets/feature_tour_overlay.dart';
 import 'memo_detail_screen.dart';
 import 'recorded_voice_memo_detail_screen.dart';
 
@@ -50,7 +51,7 @@ class _MemoScreenState extends State<MemoScreen>
   final GlobalKey _textMemoButtonKey = GlobalKey();
   final GlobalKey _voiceMemoButtonKey = GlobalKey();
   final GlobalKey _todayNavKey = GlobalKey();
-  String? _onboardingStep;
+  int _onboardingIndex = 0;
   bool _isOnboardingVisible = false;
   bool _isOnboardingBusy = false;
 
@@ -118,9 +119,10 @@ class _MemoScreenState extends State<MemoScreen>
       return;
     }
 
+    final restoredIndex = _memoTourSteps.indexWhere((step) => step.id == state.step);
     setState(() {
       _isOnboardingVisible = true;
-      _onboardingStep = state.step;
+      _onboardingIndex = restoredIndex >= 0 ? restoredIndex : 0;
     });
   }
 
@@ -138,45 +140,43 @@ class _MemoScreenState extends State<MemoScreen>
     setState(() {
       _isOnboardingBusy = false;
       _isOnboardingVisible = false;
-      _onboardingStep = null;
+    });
+  }
+
+  Future<void> _completeOnboarding() async {
+    await _skipOnboarding();
+  }
+
+  Future<void> _previousOnboardingStep() async {
+    if (_isOnboardingBusy || _onboardingIndex == 0) {
+      return;
+    }
+
+    final nextIndex = _onboardingIndex - 1;
+    setState(() {
+      _isOnboardingBusy = true;
+    });
+    await OnboardingService.markStep(_memoTourSteps[nextIndex].id);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _onboardingIndex = nextIndex;
+      _isOnboardingBusy = false;
     });
   }
 
   Future<void> _nextOnboardingStep() async {
-    final step = _onboardingStep;
-    if (step == null || _isOnboardingBusy) {
+    if (_isOnboardingBusy) {
       return;
     }
 
+    final currentStep = _memoTourSteps[_onboardingIndex];
     setState(() {
       _isOnboardingBusy = true;
     });
 
-    if (step == OnboardingService.stepMemoTextButton) {
-      await OnboardingService.markStep(OnboardingService.stepMemoVoiceButton);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _onboardingStep = OnboardingService.stepMemoVoiceButton;
-        _isOnboardingBusy = false;
-      });
-      return;
-    }
-
-    if (step == OnboardingService.stepMemoVoiceButton) {
-      await OnboardingService.markStep(OnboardingService.stepNavToday);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _onboardingStep = OnboardingService.stepNavToday;
-        _isOnboardingBusy = false;
-      });
-      return;
-    }
-
-    if (step == OnboardingService.stepNavToday) {
+    if (currentStep.id == OnboardingService.stepNavToday) {
       await OnboardingService.markStep(OnboardingService.stepCalendarAddFab);
       if (!mounted) {
         return;
@@ -190,45 +190,46 @@ class _MemoScreenState extends State<MemoScreen>
         targetIndex: 2,
         currentIndex: _selectedNavIndex,
       );
+      return;
     }
+
+    final nextIndex = _onboardingIndex + 1;
+    await OnboardingService.markStep(_memoTourSteps[nextIndex].id);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _onboardingIndex = nextIndex;
+      _isOnboardingBusy = false;
+    });
   }
 
-  GlobalKey? get _currentOnboardingTargetKey {
-    switch (_onboardingStep) {
-      case OnboardingService.stepMemoTextButton:
-        return _textMemoButtonKey;
-      case OnboardingService.stepMemoVoiceButton:
-        return _voiceMemoButtonKey;
-      case OnboardingService.stepNavToday:
-        return _todayNavKey;
-      default:
-        return null;
-    }
-  }
-
-  String get _onboardingTitle {
-    switch (_onboardingStep) {
-      case OnboardingService.stepMemoVoiceButton:
-        return 'Record voice memos';
-      case OnboardingService.stepNavToday:
-        return 'Open your calendar';
-      case OnboardingService.stepMemoTextButton:
-      default:
-        return 'Create a text memo';
-    }
-  }
-
-  String get _onboardingDescription {
-    switch (_onboardingStep) {
-      case OnboardingService.stepMemoVoiceButton:
-        return 'Tap here to quickly capture ideas with your voice.';
-      case OnboardingService.stepNavToday:
-        return 'Go to Today to see and manage family schedules.';
-      case OnboardingService.stepMemoTextButton:
-      default:
-        return 'Tap here to write a memo with title and notes.';
-    }
-  }
+  List<FeatureTourStep> get _memoTourSteps => [
+        FeatureTourStep(
+          id: OnboardingService.stepMemoTextButton,
+          targetKey: _textMemoButtonKey,
+          title: 'Create a text memo',
+          description: 'Tap here to write a memo with title and notes.',
+          preferredPlacement: TourBubblePlacement.above,
+          highlightRadius: 28,
+        ),
+        FeatureTourStep(
+          id: OnboardingService.stepMemoVoiceButton,
+          targetKey: _voiceMemoButtonKey,
+          title: 'Record voice memos',
+          description: 'Tap here to quickly capture ideas with your voice.',
+          preferredPlacement: TourBubblePlacement.above,
+          highlightRadius: 28,
+        ),
+        FeatureTourStep(
+          id: OnboardingService.stepNavToday,
+          targetKey: _todayNavKey,
+          title: 'Open your calendar',
+          description: 'Go to Today to see and manage family schedules.',
+          preferredPlacement: TourBubblePlacement.above,
+          highlightRadius: 22,
+        ),
+      ];
 
   void _startVoiceBars() {
     if (!_voiceBarsController.isAnimating) {
@@ -1245,126 +1246,15 @@ class _MemoScreenState extends State<MemoScreen>
   }
 
   Widget _buildOnboardingOverlay() {
-    final targetKey = _currentOnboardingTargetKey;
-    final targetRect = _resolveTargetRect(targetKey);
-
-    if (targetRect == null) {
-      return const SizedBox.shrink();
-    }
-
-    final bubbleTop = (targetRect.bottom + 16).clamp(96.0, 600.0).toDouble();
-
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: CustomPaint(
-            painter: _SpotlightPainter(targetRect: targetRect),
-          ),
-        ),
-        Positioned.fromRect(
-          rect: targetRect.inflate(10),
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: const Color(0xFFFDE047), width: 2.6),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x66FDE047),
-                    blurRadius: 18,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          left: 20,
-          right: 20,
-          top: bubbleTop,
-          child: _buildOnboardingBubble(),
-        ),
-      ],
-    );
-  }
-
-  Rect? _resolveTargetRect(GlobalKey? targetKey) {
-    if (targetKey == null) {
-      return null;
-    }
-    final targetContext = targetKey.currentContext;
-    if (targetContext == null) {
-      return null;
-    }
-    final renderObject = targetContext.findRenderObject();
-    if (renderObject is! RenderBox || !renderObject.attached) {
-      return null;
-    }
-    final topLeft = renderObject.localToGlobal(Offset.zero);
-    return Rect.fromLTWH(
-      topLeft.dx,
-      topLeft.dy,
-      renderObject.size.width,
-      renderObject.size.height,
-    );
-  }
-
-  Widget _buildOnboardingBubble() {
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              _onboardingTitle,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              _onboardingDescription,
-              style: const TextStyle(
-                fontSize: 13,
-                height: 1.5,
-                color: Color(0xFF475569),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                TextButton(
-                  onPressed: _isOnboardingBusy ? null : _skipOnboarding,
-                  child: const Text('Skip'),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: _isOnboardingBusy ? null : _nextOnboardingStep,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: accentColor,
-                    foregroundColor: primaryColor,
-                  ),
-                  child: Text(
-                    _onboardingStep == OnboardingService.stepNavToday
-                        ? 'Go to Today'
-                        : 'Next',
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
+    return FeatureTourOverlay(
+      step: _memoTourSteps[_onboardingIndex],
+      currentIndex: _onboardingIndex,
+      totalSteps: _memoTourSteps.length,
+      isBusy: _isOnboardingBusy,
+      onPrevious: _onboardingIndex > 0 ? _previousOnboardingStep : null,
+      onNext: _nextOnboardingStep,
+      onSkip: _skipOnboarding,
+      onComplete: _completeOnboarding,
     );
   }
 

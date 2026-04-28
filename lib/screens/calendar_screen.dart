@@ -12,6 +12,7 @@ import '../services/onboarding_service.dart';
 import '../themes/app_theme.dart';
 import '../widgets/bottom_navigation_bar.dart';
 import '../widgets/event_card.dart';
+import '../widgets/feature_tour_overlay.dart';
 import 'add_task_screen.dart';
 import 'edit_task_screen.dart';
 import 'notifications_screen.dart';
@@ -45,6 +46,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   List<_CalendarEvent> _cachedEvents = <_CalendarEvent>[];
   int _selectedNavIndex = 2;
   final GlobalKey _calendarFabKey = GlobalKey();
+  int _onboardingIndex = 0;
   bool _isOnboardingVisible = false;
   bool _isOnboardingBusy = false;
   late final List<DateTime> _days;
@@ -123,6 +125,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
     setState(() {
       _isOnboardingVisible = true;
+      _onboardingIndex = 0;
     });
   }
 
@@ -146,6 +149,40 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Future<void> _finishOnboarding() async {
     await _skipOnboarding();
   }
+
+  Future<void> _nextOnboardingStep() async {
+    if (_isOnboardingIndexAtEnd) {
+      await _finishOnboarding();
+      return;
+    }
+
+    setState(() {
+      _onboardingIndex += 1;
+    });
+  }
+
+  Future<void> _previousOnboardingStep() async {
+    if (_onboardingIndex == 0) {
+      return;
+    }
+    setState(() {
+      _onboardingIndex -= 1;
+    });
+  }
+
+  bool get _onboardingIndexAtEnd => _onboardingIndex >= _calendarTourSteps.length - 1;
+
+  List<FeatureTourStep> get _calendarTourSteps => [
+        FeatureTourStep(
+          id: OnboardingService.stepCalendarAddFab,
+          targetKey: _calendarFabKey,
+          title: 'Add a family event',
+          description:
+              'Tap this button any time to create a new event on your calendar.',
+          preferredPlacement: TourBubblePlacement.above,
+          highlightRadius: 40,
+        ),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -935,139 +972,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Widget _buildOnboardingOverlay() {
-    final targetRect = _resolveTargetRect(_calendarFabKey);
-    if (targetRect == null) {
-      return const SizedBox.shrink();
-    }
-
-    final bubbleTop = (targetRect.top - 170).clamp(96.0, 620.0).toDouble();
-
-    return Stack(
-      children: [
-        Positioned.fill(
-          child: CustomPaint(
-            painter: _CalendarSpotlightPainter(targetRect: targetRect),
-          ),
-        ),
-        Positioned.fromRect(
-          rect: targetRect.inflate(10),
-          child: IgnorePointer(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFFDE047), width: 2.6),
-                boxShadow: const [
-                  BoxShadow(
-                    color: Color(0x66FDE047),
-                    blurRadius: 18,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          left: 20,
-          right: 20,
-          top: bubbleTop,
-          child: Material(
-            color: Colors.transparent,
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Add a family event',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Tap this button any time to create a new event on your calendar.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.5,
-                      color: Color(0xFF475569),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: _isOnboardingBusy ? null : _skipOnboarding,
-                        child: const Text('Skip'),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed:
-                            _isOnboardingBusy ? null : _finishOnboarding,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: accentColor,
-                          foregroundColor: primaryColor,
-                        ),
-                        child: const Text('Finish'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
+    return FeatureTourOverlay(
+      step: _calendarTourSteps[_onboardingIndex],
+      currentIndex: _onboardingIndex,
+      totalSteps: _calendarTourSteps.length,
+      isBusy: _isOnboardingBusy,
+      onPrevious: _onboardingIndex > 0 ? _previousOnboardingStep : null,
+      onNext: _nextOnboardingStep,
+      onSkip: _skipOnboarding,
+      onComplete: _finishOnboarding,
     );
-  }
-
-  Rect? _resolveTargetRect(GlobalKey targetKey) {
-    final targetContext = targetKey.currentContext;
-    if (targetContext == null) {
-      return null;
-    }
-    final renderObject = targetContext.findRenderObject();
-    if (renderObject is! RenderBox || !renderObject.attached) {
-      return null;
-    }
-    final topLeft = renderObject.localToGlobal(Offset.zero);
-    return Rect.fromLTWH(
-      topLeft.dx,
-      topLeft.dy,
-      renderObject.size.width,
-      renderObject.size.height,
-    );
-  }
-}
-
-class _CalendarSpotlightPainter extends CustomPainter {
-  const _CalendarSpotlightPainter({required this.targetRect});
-
-  final Rect targetRect;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final overlayPath = Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
-      ..addOval(targetRect.inflate(12));
-
-    canvas.drawPath(
-      overlayPath,
-      Paint()..color = const Color(0xB3000000),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _CalendarSpotlightPainter oldDelegate) {
-    return oldDelegate.targetRect != targetRect;
   }
 }
 
