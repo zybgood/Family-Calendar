@@ -34,15 +34,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   final ImagePicker _picker = ImagePicker();
 
-  /// 把这里换成你自己的系统头像链接
-  /// 建议直接放 Firebase Storage 的公开下载地址
   final List<String> _defaultAvatarUrls = [
-    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FGrandfather.png?alt=media&token=1c9c2184-a688-4767-a017-0dd7fd4a8bef',
-    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FGrandmother.png?alt=media&token=69a1ba36-bbe4-4f22-8e06-2594b9c9cff5',
-    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FDad.png?alt=media&token=1231ae66-d746-4ab0-8399-a03cea1559c3',
-    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FMom.png?alt=media&token=d75267c6-0db8-414a-9ae5-acd0ed596283',
-    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FSon.png?alt=media&token=ff37db2c-b550-4ee6-8002-0a24040afed5',
-    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2FDaughter.png?alt=media&token=57a326d0-fe1c-489d-9bc4-ec4e722743c8',
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220-au/o/default_avatars%2FGrandfather.png?alt=media&token=20b78468-2e8b-4e3b-9ffd-40d4793d4d44',
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220-au/o/default_avatars%2FGrandmother.png?alt=media&token=fc88b0fe-4161-4055-a78c-0e49fb97929f',
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220-au/o/default_avatars%2FDad.png?alt=media&token=d519cf6d-113e-4557-a4eb-00d30f7e95a6',
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220-au/o/default_avatars%2FMom.png?alt=media&token=c8b4259b-163d-4604-9072-cb78e470c281',
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220-au/o/default_avatars%2FSon.png?alt=media&token=f6cdd79f-239c-408f-a51f-d036a64e58b9',
+    'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220-au/o/default_avatars%2FDaughter.png?alt=media&token=26d89a83-040d-4cae-b4d9-440841762916',
   ];
 
   @override

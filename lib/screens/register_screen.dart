@@ -22,10 +22,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   static const labelColor = Color(0xFF1E293B);
   static const hintColor = Color(0xFF64748B);
   static const placeholderColor = Color(0xFF94A3B8);
-  static const fieldBackgroundColor = bgColor;
+  static const fieldBackgroundColor = Color(0xFFFFFDF5);
   static const fieldBorderColor = Color(0xFFDDE2E7);
   static const String defaultAvatarUrl =
-      'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220.firebasestorage.app/o/default_avatars%2Fdefault.png?alt=media&token=87a5af03-c5c0-47f3-ac7a-3a4cfd811fa9';
+      'https://firebasestorage.googleapis.com/v0/b/family-calendar-65220-au/o/default_avatars%2Fdefault.png?alt=media&token=ee994d79-50b2-4aa2-8916-0063a657c202';
 
   final fullNameController = TextEditingController();
   final emailController = TextEditingController();
@@ -63,8 +63,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return 'Please enter your password.';
     }
 
-    if (password.length < 6) {
-      return 'Password must be at least 6 characters.';
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters.';
+    }
+
+    if (password.length > 15) {
+      return 'Password must be no more than 15 characters.';
+    }
+
+    if (!RegExp(r'[A-Z]').hasMatch(password)) {
+      return 'Password must contain at least one uppercase letter.';
+    }
+
+    if (!RegExp(r'[a-z]').hasMatch(password)) {
+      return 'Password must contain at least one lowercase letter.';
+    }
+
+    if (!RegExp(r'[0-9]').hasMatch(password)) {
+      return 'Password must contain at least one number.';
     }
 
     return null;
@@ -183,7 +199,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       await user.updateDisplayName(fullName);
       await user.updatePhotoURL(defaultAvatarUrl);
 
-      // 发送邮箱验证邮件
       await user.sendEmailVerification();
 
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
@@ -200,7 +215,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'lastLoginAt': null,
       });
 
-      // 注册后退出登录，防止未验证邮箱直接进入主页
       await FirebaseAuth.instance.signOut();
 
       if (!mounted) return;
@@ -576,7 +590,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               textInputAction: TextInputAction.done,
               onSubmitted: (_) => _isLoading ? null : _register(),
               decoration: const InputDecoration(
-                hintText: 'Create a secure password',
+                hintText: '8-15 chars, upper, lower, number',
                 hintStyle: TextStyle(color: placeholderColor, fontSize: 16),
                 border: InputBorder.none,
               ),
@@ -630,7 +644,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         'Create Account',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 18,
+                          fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: Color(0xFF0F172A),
                         ),
