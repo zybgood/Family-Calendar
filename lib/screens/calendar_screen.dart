@@ -206,7 +206,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               letterSpacing: -0.5,
             ),
           ),
-          const SizedBox(width: 40),
+          _buildNotificationsButton(context),
         ],
       ),
     );
@@ -280,6 +280,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Widget _buildNotificationsButton(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
     return GestureDetector(
       onTap: () => Navigator.of(
         context,
@@ -305,25 +307,39 @@ class _CalendarScreenState extends State<CalendarScreen> {
               child: Icon(Icons.notifications, size: 18, color: primaryColor),
             ),
           ),
-          Positioned(
-            top: -4,
-            right: -4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              decoration: const BoxDecoration(
-                color: Color(0xFFEF4444),
-                borderRadius: BorderRadius.all(Radius.circular(999)),
-              ),
-              child: const Text(
-                '99+',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+          if (user != null)
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection('notifications')
+                  .where('recipientId', isEqualTo: user.uid)
+                  .where('isRead', isEqualTo: false)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                final count = snapshot.data?.docs.length ?? 0;
+                if (count == 0) return const SizedBox.shrink();
+
+                return Positioned(
+                  top: -4,
+                  right: -4,
+                  child: Container(
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFEF4444),
+                      borderRadius: BorderRadius.all(Radius.circular(999)),
+                    ),
+                    child: Text(
+                      count > 99 ? '99+' : '$count',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
-          ),
         ],
       ),
     );
