@@ -12,6 +12,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../navigation/app_bottom_nav.dart';
+import '../services/onboarding_service.dart';
 import '../themes/app_theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/bottom_navigation_bar.dart';
@@ -46,6 +47,12 @@ class _MemoScreenState extends State<MemoScreen>
   Timer? _recordingTimer;
   DateTime? _recordingStartedAt;
   String? _activeRecordingPath;
+  final GlobalKey _textMemoButtonKey = GlobalKey();
+  final GlobalKey _voiceMemoButtonKey = GlobalKey();
+  final GlobalKey _todayNavKey = GlobalKey();
+  String? _onboardingStep;
+  bool _isOnboardingVisible = false;
+  bool _isOnboardingBusy = false;
 
   bool get _isListening => _voiceUi.value.isListening;
   bool get _isVoiceTransitioning => _voiceUi.value.isVoiceTransitioning;
@@ -65,6 +72,9 @@ class _MemoScreenState extends State<MemoScreen>
       vsync: this,
       duration: const Duration(milliseconds: 900),
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _maybeStartOnboarding();
+    });
   }
 
   @override
@@ -95,6 +105,129 @@ class _MemoScreenState extends State<MemoScreen>
       ..showSnackBar(
         SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
       );
+  }
+
+  Future<void> _maybeStartOnboarding() async {
+    final state = await OnboardingService.getCurrentState();
+    if (!mounted || state == null || !OnboardingService.shouldStart(state)) {
+      return;
+    }
+
+    if (state.step == OnboardingService.stepCalendarAddFab ||
+        state.step == OnboardingService.stepCompleted) {
+      return;
+    }
+
+    setState(() {
+      _isOnboardingVisible = true;
+      _onboardingStep = state.step;
+    });
+  }
+
+  Future<void> _skipOnboarding() async {
+    if (_isOnboardingBusy) {
+      return;
+    }
+    setState(() {
+      _isOnboardingBusy = true;
+    });
+    await OnboardingService.complete();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isOnboardingBusy = false;
+      _isOnboardingVisible = false;
+      _onboardingStep = null;
+    });
+  }
+
+  Future<void> _nextOnboardingStep() async {
+    final step = _onboardingStep;
+    if (step == null || _isOnboardingBusy) {
+      return;
+    }
+
+    setState(() {
+      _isOnboardingBusy = true;
+    });
+
+    if (step == OnboardingService.stepMemoTextButton) {
+      await OnboardingService.markStep(OnboardingService.stepMemoVoiceButton);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _onboardingStep = OnboardingService.stepMemoVoiceButton;
+        _isOnboardingBusy = false;
+      });
+      return;
+    }
+
+    if (step == OnboardingService.stepMemoVoiceButton) {
+      await OnboardingService.markStep(OnboardingService.stepNavToday);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _onboardingStep = OnboardingService.stepNavToday;
+        _isOnboardingBusy = false;
+      });
+      return;
+    }
+
+    if (step == OnboardingService.stepNavToday) {
+      await OnboardingService.markStep(OnboardingService.stepCalendarAddFab);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isOnboardingBusy = false;
+        _isOnboardingVisible = false;
+      });
+      navigateFromBottomNav(
+        context,
+        targetIndex: 2,
+        currentIndex: _selectedNavIndex,
+      );
+    }
+  }
+
+  GlobalKey? get _currentOnboardingTargetKey {
+    switch (_onboardingStep) {
+      case OnboardingService.stepMemoTextButton:
+        return _textMemoButtonKey;
+      case OnboardingService.stepMemoVoiceButton:
+        return _voiceMemoButtonKey;
+      case OnboardingService.stepNavToday:
+        return _todayNavKey;
+      default:
+        return null;
+    }
+  }
+
+  String get _onboardingTitle {
+    switch (_onboardingStep) {
+      case OnboardingService.stepMemoVoiceButton:
+        return 'Record voice memos';
+      case OnboardingService.stepNavToday:
+        return 'Open your calendar';
+      case OnboardingService.stepMemoTextButton:
+      default:
+        return 'Create a text memo';
+    }
+  }
+
+  String get _onboardingDescription {
+    switch (_onboardingStep) {
+      case OnboardingService.stepMemoVoiceButton:
+        return 'Tap here to quickly capture ideas with your voice.';
+      case OnboardingService.stepNavToday:
+        return 'Go to Today to see and manage family schedules.';
+      case OnboardingService.stepMemoTextButton:
+      default:
+        return 'Tap here to write a memo with title and notes.';
+    }
   }
 
   void _startVoiceBars() {
@@ -794,6 +927,8 @@ class _MemoScreenState extends State<MemoScreen>
                           bottom: actionBottomOffset,
                           child: _buildBottomActionRow(),
                         ),
+                        if (_isOnboardingVisible)
+                          Positioned.fill(child: _buildOnboardingOverlay()),
                       ],
                     ),
                   ),
@@ -844,6 +979,7 @@ class _MemoScreenState extends State<MemoScreen>
                     bottom: 0,
                     child: AppBottomNavigationBar(
                       currentIndex: _selectedNavIndex,
+                      navItemKeys: {2: _todayNavKey},
                       onItemTapped: (index) {
                         navigateFromBottomNav(
                           context,
@@ -996,6 +1132,7 @@ class _MemoScreenState extends State<MemoScreen>
               children: [
                 _buildMemoActionButton(
                   icon: Icons.edit_note_rounded,
+                  buttonKey: _textMemoButtonKey,
                   semanticLabel: 'Text memo',
                   onTap: _openNewMemo,
                   backgroundColor: Colors.white.withValues(alpha: 0.96),
@@ -1004,6 +1141,7 @@ class _MemoScreenState extends State<MemoScreen>
                 const SizedBox(width: 18),
                 _buildMemoActionButton(
                   icon: Icons.mic_rounded,
+                  buttonKey: _voiceMemoButtonKey,
                   semanticLabel: 'Voice memo',
                   onTap: _startVoiceMemoCreation,
                   backgroundColor: const Color(0xFFFFF4C7),
@@ -1072,6 +1210,7 @@ class _MemoScreenState extends State<MemoScreen>
   }
 
   Widget _buildMemoActionButton({
+    GlobalKey? buttonKey,
     required IconData icon,
     required String semanticLabel,
     required VoidCallback onTap,
@@ -1079,6 +1218,7 @@ class _MemoScreenState extends State<MemoScreen>
     required Color iconColor,
   }) {
     return GestureDetector(
+      key: buttonKey,
       onTap: onTap,
       child: Semantics(
         label: semanticLabel,
@@ -1099,6 +1239,130 @@ class _MemoScreenState extends State<MemoScreen>
             ],
           ),
           child: Icon(icon, color: iconColor, size: 24),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOnboardingOverlay() {
+    final targetKey = _currentOnboardingTargetKey;
+    final targetRect = _resolveTargetRect(targetKey);
+
+    if (targetRect == null) {
+      return const SizedBox.shrink();
+    }
+
+    final bubbleTop = (targetRect.bottom + 16).clamp(96.0, 600.0).toDouble();
+
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: CustomPaint(
+            painter: _SpotlightPainter(targetRect: targetRect),
+          ),
+        ),
+        Positioned.fromRect(
+          rect: targetRect.inflate(10),
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFFDE047), width: 2.6),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Color(0x66FDE047),
+                    blurRadius: 18,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          left: 20,
+          right: 20,
+          top: bubbleTop,
+          child: _buildOnboardingBubble(),
+        ),
+      ],
+    );
+  }
+
+  Rect? _resolveTargetRect(GlobalKey? targetKey) {
+    if (targetKey == null) {
+      return null;
+    }
+    final targetContext = targetKey.currentContext;
+    if (targetContext == null) {
+      return null;
+    }
+    final renderObject = targetContext.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.attached) {
+      return null;
+    }
+    final topLeft = renderObject.localToGlobal(Offset.zero);
+    return Rect.fromLTWH(
+      topLeft.dx,
+      topLeft.dy,
+      renderObject.size.width,
+      renderObject.size.height,
+    );
+  }
+
+  Widget _buildOnboardingBubble() {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _onboardingTitle,
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _onboardingDescription,
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.5,
+                color: Color(0xFF475569),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: _isOnboardingBusy ? null : _skipOnboarding,
+                  child: const Text('Skip'),
+                ),
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: _isOnboardingBusy ? null : _nextOnboardingStep,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accentColor,
+                    foregroundColor: primaryColor,
+                  ),
+                  child: Text(
+                    _onboardingStep == OnboardingService.stepNavToday
+                        ? 'Go to Today'
+                        : 'Next',
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -1740,5 +2004,34 @@ class _MemoCard extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _SpotlightPainter extends CustomPainter {
+  const _SpotlightPainter({required this.targetRect});
+
+  final Rect targetRect;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final overlayPath = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          targetRect.inflate(12),
+          const Radius.circular(20),
+        ),
+      );
+
+    canvas.drawPath(
+      overlayPath,
+      Paint()..color = const Color(0xB3000000),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpotlightPainter oldDelegate) {
+    return oldDelegate.targetRect != targetRect;
   }
 }
