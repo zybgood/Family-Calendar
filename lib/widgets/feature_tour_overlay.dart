@@ -22,7 +22,7 @@ class FeatureTourStep {
 
 enum TourBubblePlacement { auto, above, below }
 
-class FeatureTourOverlay extends StatelessWidget {
+class FeatureTourOverlay extends StatefulWidget {
   const FeatureTourOverlay({
     super.key,
     required this.step,
@@ -45,18 +45,27 @@ class FeatureTourOverlay extends StatelessWidget {
   final bool isBusy;
 
   @override
+  State<FeatureTourOverlay> createState() => _FeatureTourOverlayState();
+}
+
+class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
+  int _retryCount = 0;
+
+  @override
   Widget build(BuildContext context) {
-    final targetRect = _resolveTargetRect(context, step.targetKey);
+    final targetRect = _resolveTargetRect(context, widget.step.targetKey);
     if (targetRect == null) {
+      _scheduleRetry();
       return const SizedBox.shrink();
     }
+    _retryCount = 0;
 
     final screenSize = MediaQuery.of(context).size;
     final bubbleWidth = (screenSize.width - 40).clamp(260.0, 420.0).toDouble();
     const bubbleHeightEstimate = 180.0;
 
     final placement = _resolvePlacement(
-      step.preferredPlacement,
+      widget.step.preferredPlacement,
       targetRect,
       screenSize,
       bubbleHeightEstimate,
@@ -80,17 +89,17 @@ class FeatureTourOverlay extends StatelessWidget {
           child: CustomPaint(
             painter: _TourMaskPainter(
               targetRect: targetRect,
-              highlightPadding: step.highlightPadding,
-              highlightRadius: step.highlightRadius,
+              highlightPadding: widget.step.highlightPadding,
+              highlightRadius: widget.step.highlightRadius,
             ),
           ),
         ),
         Positioned.fromRect(
-          rect: targetRect.inflate(step.highlightPadding),
+          rect: targetRect.inflate(widget.step.highlightPadding),
           child: IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(step.highlightRadius),
+                borderRadius: BorderRadius.circular(widget.step.highlightRadius),
                 border: Border.all(color: const Color(0xFFF6D25E), width: 2),
                 boxShadow: const [
                   BoxShadow(
@@ -108,19 +117,32 @@ class FeatureTourOverlay extends StatelessWidget {
           width: bubbleWidth,
           top: bubbleTop,
           child: _TourBubble(
-            title: step.title,
-            description: step.description,
-            currentIndex: currentIndex,
-            totalSteps: totalSteps,
-            isBusy: isBusy,
-            onPrevious: onPrevious,
-            onNext: onNext,
-            onSkip: onSkip,
-            onComplete: onComplete,
+            title: widget.step.title,
+            description: widget.step.description,
+            currentIndex: widget.currentIndex,
+            totalSteps: widget.totalSteps,
+            isBusy: widget.isBusy,
+            onPrevious: widget.onPrevious,
+            onNext: widget.onNext,
+            onSkip: widget.onSkip,
+            onComplete: widget.onComplete,
           ),
         ),
       ],
     );
+  }
+
+  void _scheduleRetry() {
+    if (_retryCount >= 30) {
+      return;
+    }
+    _retryCount += 1;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {});
+    });
   }
 
   Rect? _resolveTargetRect(BuildContext overlayContext, GlobalKey targetKey) {
@@ -174,12 +196,12 @@ class FeatureTourOverlay extends StatelessWidget {
     required double bubbleHeightEstimate,
   }) {
     if (placement == TourBubblePlacement.above) {
-      return (targetRect.top - bubbleHeightEstimate - 16)
+      return (targetRect.top - bubbleHeightEstimate - 34)
           .clamp(16.0, screenHeight - bubbleHeightEstimate - 16)
           .toDouble();
     }
 
-    return (targetRect.bottom + 12)
+    return (targetRect.bottom + 4)
         .clamp(16.0, screenHeight - bubbleHeightEstimate - 16)
         .toDouble();
   }
@@ -276,18 +298,6 @@ class _TourBubble extends StatelessWidget {
                 OutlinedButton(
                   onPressed: isBusy ? null : onNext,
                   child: const Text('Next'),
-                ),
-                TextButton(
-                  onPressed: isBusy ? null : onSkip,
-                  child: const Text('Skip'),
-                ),
-                ElevatedButton(
-                  onPressed: isBusy ? null : onComplete,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE2B736),
-                    foregroundColor: const Color(0xFF0F172A),
-                  ),
-                  child: const Text('Complete'),
                 ),
               ],
             ),
