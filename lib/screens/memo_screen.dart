@@ -130,6 +130,12 @@ class _MemoScreenState extends State<MemoScreen>
       _isOnboardingVisible = true;
       _onboardingIndex = targetIndex;
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_isOnboardingVisible) {
+        return;
+      }
+      setState(() {});
+    });
   }
 
   Future<bool> _waitForTargetReady(GlobalKey key) async {

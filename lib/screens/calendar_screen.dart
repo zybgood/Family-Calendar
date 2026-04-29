@@ -133,6 +133,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
       _isOnboardingVisible = true;
       _onboardingIndex = 0;
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_isOnboardingVisible) {
+        return;
+      }
+      setState(() {});
+    });
   }
 
   Future<bool> _waitForTargetReady(GlobalKey key) async {
