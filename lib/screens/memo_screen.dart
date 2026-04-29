@@ -1274,7 +1274,7 @@ class _MemoScreenState extends State<MemoScreen>
     return FeatureTourOverlay(
       step: _memoTourSteps[_onboardingIndex],
       currentIndex: _onboardingIndex,
-      totalSteps: _memoTourSteps.length,
+      totalSteps: 4,
       isBusy: _isOnboardingBusy,
       onPrevious: _onboardingIndex > 0 ? _previousOnboardingStep : null,
       onNext: _nextOnboardingStep,

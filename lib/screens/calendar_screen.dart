@@ -188,6 +188,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   Future<void> _previousOnboardingStep() async {
     if (_onboardingIndex == 0) {
+      await OnboardingService.markStep(OnboardingService.stepNavToday);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isOnboardingVisible = false;
+      });
+      navigateFromBottomNav(
+        context,
+        targetIndex: 0,
+        currentIndex: _selectedNavIndex,
+      );
       return;
     }
     setState(() {
@@ -999,10 +1011,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Widget _buildOnboardingOverlay() {
     return FeatureTourOverlay(
       step: _calendarTourSteps[_onboardingIndex],
-      currentIndex: _onboardingIndex,
-      totalSteps: _calendarTourSteps.length,
+      currentIndex: 3,
+      totalSteps: 4,
       isBusy: _isOnboardingBusy,
-      onPrevious: _onboardingIndex > 0 ? _previousOnboardingStep : null,
+      onPrevious: _previousOnboardingStep,
       onNext: _nextOnboardingStep,
       onSkip: _skipOnboarding,
       onComplete: _finishOnboarding,

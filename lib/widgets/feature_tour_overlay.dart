@@ -100,11 +100,14 @@ class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
             child: DecoratedBox(
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(widget.step.highlightRadius),
-                border: Border.all(color: const Color(0xFFF6D25E), width: 2),
+                border: Border.all(
+                  color: const Color(0xCCFFFFFF),
+                  width: 2,
+                ),
                 boxShadow: const [
                   BoxShadow(
-                    color: Color(0x4DF6D25E),
-                    blurRadius: 14,
+                    color: Color(0x55FFFFFF),
+                    blurRadius: 12,
                     spreadRadius: 1,
                   ),
                 ],
@@ -246,46 +249,58 @@ class _TourBubble extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
           boxShadow: const [
             BoxShadow(
-              color: Color(0x260F172A),
-              blurRadius: 18,
-              offset: Offset(0, 8),
+              color: Color(0x1A0F172A),
+              blurRadius: 24,
+              offset: Offset(0, 10),
             ),
           ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    'Step ${currentIndex + 1} / $totalSteps',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1D4ED8),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
             Text(
               title,
               style: const TextStyle(
-                fontSize: 16,
+                fontSize: 19,
                 fontWeight: FontWeight.w800,
                 color: Color(0xFF0F172A),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
             Text(
               description,
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 14,
                 height: 1.5,
                 color: Color(0xFF475569),
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Step ${currentIndex + 1} of $totalSteps',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF64748B),
-              ),
-            ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -293,10 +308,20 @@ class _TourBubble extends StatelessWidget {
               children: [
                 OutlinedButton(
                   onPressed: isBusy ? null : onPrevious,
+                  style: OutlinedButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
                   child: const Text('Previous'),
                 ),
                 OutlinedButton(
                   onPressed: isBusy ? null : onNext,
+                  style: OutlinedButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
                   child: const Text('Next'),
                 ),
               ],
