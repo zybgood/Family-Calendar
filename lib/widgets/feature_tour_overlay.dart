@@ -22,7 +22,7 @@ class FeatureTourStep {
 
 enum TourBubblePlacement { auto, above, below }
 
-class FeatureTourOverlay extends StatefulWidget {
+class FeatureTourOverlay extends StatelessWidget {
   const FeatureTourOverlay({
     super.key,
     required this.step,
@@ -45,27 +45,18 @@ class FeatureTourOverlay extends StatefulWidget {
   final bool isBusy;
 
   @override
-  State<FeatureTourOverlay> createState() => _FeatureTourOverlayState();
-}
-
-class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
-  int _retryCount = 0;
-
-  @override
   Widget build(BuildContext context) {
-    final targetRect = _resolveTargetRect(context, widget.step.targetKey);
+    final targetRect = _resolveTargetRect(context, step.targetKey);
     if (targetRect == null) {
-      _scheduleRetry();
       return const SizedBox.shrink();
     }
-    _retryCount = 0;
 
     final screenSize = MediaQuery.of(context).size;
     final bubbleWidth = (screenSize.width - 40).clamp(260.0, 420.0).toDouble();
     const bubbleHeightEstimate = 180.0;
 
     final placement = _resolvePlacement(
-      widget.step.preferredPlacement,
+      step.preferredPlacement,
       targetRect,
       screenSize,
       bubbleHeightEstimate,
@@ -89,17 +80,17 @@ class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
           child: CustomPaint(
             painter: _TourMaskPainter(
               targetRect: targetRect,
-              highlightPadding: widget.step.highlightPadding,
-              highlightRadius: widget.step.highlightRadius,
+              highlightPadding: step.highlightPadding,
+              highlightRadius: step.highlightRadius,
             ),
           ),
         ),
         Positioned.fromRect(
-          rect: targetRect.inflate(widget.step.highlightPadding),
+          rect: targetRect.inflate(step.highlightPadding),
           child: IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(widget.step.highlightRadius),
+                borderRadius: BorderRadius.circular(step.highlightRadius),
                 border: Border.all(color: const Color(0xFFF6D25E), width: 2),
                 boxShadow: const [
                   BoxShadow(
@@ -117,32 +108,19 @@ class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
           width: bubbleWidth,
           top: bubbleTop,
           child: _TourBubble(
-            title: widget.step.title,
-            description: widget.step.description,
-            currentIndex: widget.currentIndex,
-            totalSteps: widget.totalSteps,
-            isBusy: widget.isBusy,
-            onPrevious: widget.onPrevious,
-            onNext: widget.onNext,
-            onSkip: widget.onSkip,
-            onComplete: widget.onComplete,
+            title: step.title,
+            description: step.description,
+            currentIndex: currentIndex,
+            totalSteps: totalSteps,
+            isBusy: isBusy,
+            onPrevious: onPrevious,
+            onNext: onNext,
+            onSkip: onSkip,
+            onComplete: onComplete,
           ),
         ),
       ],
     );
-  }
-
-  void _scheduleRetry() {
-    if (_retryCount >= 30) {
-      return;
-    }
-    _retryCount += 1;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {});
-    });
   }
 
   Rect? _resolveTargetRect(BuildContext overlayContext, GlobalKey targetKey) {

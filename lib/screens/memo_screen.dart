@@ -1921,3 +1921,32 @@ class _MemoCard extends StatelessWidget {
     );
   }
 }
+
+class _SpotlightPainter extends CustomPainter {
+  const _SpotlightPainter({required this.targetRect});
+
+  final Rect targetRect;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final overlayPath = Path()
+      ..fillType = PathFillType.evenOdd
+      ..addRect(Rect.fromLTWH(0, 0, size.width, size.height))
+      ..addRRect(
+        RRect.fromRectAndRadius(
+          targetRect.inflate(12),
+          const Radius.circular(20),
+        ),
+      );
+
+    canvas.drawPath(
+      overlayPath,
+      Paint()..color = const Color(0xB3000000),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _SpotlightPainter oldDelegate) {
+    return oldDelegate.targetRect != targetRect;
+  }
+}
