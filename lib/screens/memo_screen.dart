@@ -120,10 +120,29 @@ class _MemoScreenState extends State<MemoScreen>
     }
 
     final restoredIndex = _memoTourSteps.indexWhere((step) => step.id == state.step);
+    final targetIndex = restoredIndex >= 0 ? restoredIndex : 0;
+    final isTargetReady = await _waitForTargetReady(_memoTourSteps[targetIndex].targetKey);
+    if (!mounted || !isTargetReady) {
+      return;
+    }
+
     setState(() {
       _isOnboardingVisible = true;
-      _onboardingIndex = restoredIndex >= 0 ? restoredIndex : 0;
+      _onboardingIndex = targetIndex;
     });
+  }
+
+  Future<bool> _waitForTargetReady(GlobalKey key) async {
+    for (int i = 0; i < 12; i++) {
+      if (!mounted) {
+        return false;
+      }
+      if (key.currentContext != null) {
+        return true;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+    return key.currentContext != null;
   }
 
   Future<void> _skipOnboarding() async {

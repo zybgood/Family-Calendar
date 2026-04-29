@@ -123,10 +123,29 @@ class _CalendarScreenState extends State<CalendarScreen> {
     if (state.step != OnboardingService.stepCalendarAddFab) {
       return;
     }
+
+    final isTargetReady = await _waitForTargetReady(_calendarFabKey);
+    if (!mounted || !isTargetReady) {
+      return;
+    }
+
     setState(() {
       _isOnboardingVisible = true;
       _onboardingIndex = 0;
     });
+  }
+
+  Future<bool> _waitForTargetReady(GlobalKey key) async {
+    for (int i = 0; i < 12; i++) {
+      if (!mounted) {
+        return false;
+      }
+      if (key.currentContext != null) {
+        return true;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+    return key.currentContext != null;
   }
 
   Future<void> _skipOnboarding() async {
