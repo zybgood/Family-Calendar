@@ -151,7 +151,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   Future<void> _nextOnboardingStep() async {
-    if (_isOnboardingIndexAtEnd) {
+    if (_onboardingIndexAtEnd) {
       await _finishOnboarding();
       return;
     }
