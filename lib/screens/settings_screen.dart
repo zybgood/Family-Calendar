@@ -8,6 +8,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../navigation/app_bottom_nav.dart';
+import '../services/session_manager.dart';
 import '../themes/app_theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/bottom_navigation_bar.dart';
@@ -621,10 +622,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
       child: GestureDetector(
         onTap: () async {
-          await FirebaseAuth.instance.signOut();
+          await SessionManager.signOutCompletely();
+
           if (!mounted) return;
-          Navigator.of(context).pushReplacement(
+
+          Navigator.of(context).pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (route) => false,
           );
         },
         child: Container(

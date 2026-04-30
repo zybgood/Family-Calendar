@@ -1,4 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SessionManager {
@@ -7,6 +8,7 @@ class SessionManager {
 
   static Future<void> markActiveNow() async {
     final prefs = await SharedPreferences.getInstance();
+
     await prefs.setInt(
       _lastActiveKey,
       DateTime.now().millisecondsSinceEpoch,
@@ -42,9 +44,19 @@ class SessionManager {
     final expired = await isSessionExpired();
 
     if (expired) {
-      await clearSession();
-      await FirebaseAuth.instance.signOut();
+      await signOutCompletely();
     }
+  }
+
+  static Future<void> signOutCompletely() async {
+    await clearSession();
+
+    try {
+      await GoogleSignIn().signOut();
+    } catch (_) {
+    }
+
+    await FirebaseAuth.instance.signOut();
   }
 
   static Future<void> clearSession() async {
