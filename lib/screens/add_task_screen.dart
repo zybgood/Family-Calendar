@@ -139,13 +139,7 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
     if (!mounted) return;
     setState(() {
       _selectedFamilyId = familyId;
-      _selectedParticipants = [
-        SelectedTaskMember(
-          id: user.uid,
-          name: name.isEmpty ? 'Me' : name,
-          avatarUrl: avatarUrl,
-        ),
-      ];
+      _selectedParticipants = [];
       _isLoadingDefaultParticipants = false;
     });
   }
@@ -294,12 +288,16 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   }
 
   List<String> _buildParticipantIds(String currentUid) {
-    final ids = <String>{currentUid};
+    final ids = <String>{};
 
     for (final member in _selectedParticipants) {
       if (member.id.trim().isNotEmpty) {
         ids.add(member.id.trim());
       }
+    }
+
+    if (ids.isEmpty) {
+      ids.add(currentUid);
     }
 
     return ids.toList();

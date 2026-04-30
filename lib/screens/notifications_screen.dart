@@ -199,8 +199,8 @@ class NotificationsScreen extends StatelessWidget {
               if (isInvitation) ...[
                 Text(
                   isTaskInvitation
-                      ? '任务名称：${eventTitle.isEmpty ? 'Task' : eventTitle}'
-                      : '家庭名称：${familyName.isEmpty ? 'Family' : familyName}',
+                      ? 'Task name：${eventTitle.isEmpty ? 'Task' : eventTitle}'
+                      : 'Family name：${familyName.isEmpty ? 'Family' : familyName}',
                   style: const TextStyle(
                     color: _primaryColor,
                     fontSize: 14,
@@ -209,7 +209,7 @@ class NotificationsScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '邀请人：${senderName.isEmpty ? 'Member' : senderName}',
+                  'Inviter：${senderName.isEmpty ? 'Member' : senderName}',
                   style: const TextStyle(color: _mutedColor, fontSize: 13),
                 ),
               ] else
@@ -245,7 +245,7 @@ class NotificationsScreen extends StatelessWidget {
                                 notificationId: doc.id,
                                 accepted: false,
                               ),
-                        child: const Text('拒绝'),
+                        child: const Text('Refuse'),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -267,7 +267,7 @@ class NotificationsScreen extends StatelessWidget {
                                 notificationId: doc.id,
                                 accepted: true,
                               ),
-                        child: const Text('接受'),
+                        child: const Text('Accept'),
                       ),
                     ),
                   ],
@@ -296,13 +296,13 @@ class NotificationsScreen extends StatelessWidget {
       if (!context.mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(accepted ? '已接受邀请' : '已拒绝邀请')),
+        SnackBar(content: Text(accepted ? 'Invitation accepted' : 'Invitation refused')),
       );
     } catch (e) {
       if (!context.mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('操作失败：$e')),
+        SnackBar(content: Text('Operation failed：$e')),
       );
     }
   }
@@ -322,13 +322,13 @@ class NotificationsScreen extends StatelessWidget {
       if (!context.mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(accepted ? '已接受邀请' : '已拒绝邀请')),
+        SnackBar(content: Text(accepted ? 'Invitation accepted' : 'Invitation refused')),
       );
     } catch (e) {
       if (!context.mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('操作失败：$e')),
+        SnackBar(content: Text('Operation failed：$e')),
       );
     }
   }
