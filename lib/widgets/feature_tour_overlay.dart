@@ -76,6 +76,7 @@ class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
       targetRect: targetRect,
       screenHeight: screenSize.height,
       bubbleHeightEstimate: bubbleHeightEstimate,
+      stepIndex: widget.currentIndex,
     );
     final bubbleLeft = _bubbleLeft(
       targetRect: targetRect,
@@ -197,14 +198,16 @@ class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
     required Rect targetRect,
     required double screenHeight,
     required double bubbleHeightEstimate,
+    required int stepIndex,
   }) {
+    final extraGapForLateSteps = stepIndex >= 2 ? 22.0 : 0.0;
     if (placement == TourBubblePlacement.above) {
-      return (targetRect.top - bubbleHeightEstimate - 34)
+      return (targetRect.top - bubbleHeightEstimate - 34 - extraGapForLateSteps)
           .clamp(16.0, screenHeight - bubbleHeightEstimate - 16)
           .toDouble();
     }
 
-    return (targetRect.bottom + 4)
+    return (targetRect.bottom + 4 + extraGapForLateSteps)
         .clamp(16.0, screenHeight - bubbleHeightEstimate - 16)
         .toDouble();
   }
@@ -246,8 +249,8 @@ class _TourBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(18, 16, 18, 14),
+          child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
         decoration: BoxDecoration(
           color: const Color(0xFFF8FAFC),
           borderRadius: BorderRadius.circular(20),
@@ -282,42 +285,44 @@ class _TourBubble extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 12),
             Text(
               title,
               style: const TextStyle(
-                fontSize: 19,
+                fontSize: 17,
                 fontWeight: FontWeight.w800,
                 color: Color(0xFF0F172A),
+                letterSpacing: -0.2,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
             Text(
               description,
               style: const TextStyle(
-                fontSize: 14,
-                height: 1.5,
+                fontSize: 14.5,
+                height: 1.45,
                 color: Color(0xFF475569),
               ),
             ),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              alignment: WrapAlignment.end,
+            const SizedBox(height: 18),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 OutlinedButton(
                   onPressed: isBusy ? null : onPrevious,
                   style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(112, 44),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(999),
                     ),
                   ),
                   child: const Text('Previous'),
                 ),
+                const SizedBox(width: 12),
                 OutlinedButton(
                   onPressed: isBusy ? null : onNext,
                   style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(88, 44),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(999),
                     ),
