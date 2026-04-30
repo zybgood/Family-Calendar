@@ -54,8 +54,8 @@ class TaskInvitationService {
         'eventId': eventId,
         'eventTitle': eventTitle,
         'type': 'task_invitation',
-        'title': '新任务邀请',
-        'message': '$creatorName 邀请你参与任务：$eventTitle',
+        'title': 'New task invitation',
+        'message': '$creatorName invite you to join the task：$eventTitle',
         'status': 'pending',
         'isRead': false,
         'createdAt': now,
@@ -70,8 +70,8 @@ class TaskInvitationService {
         'eventId': eventId,
         'eventTitle': eventTitle,
         'type': 'task_invitation_sent',
-        'title': '已发送邀请',
-        'message': '已发送邀请，等待$inviteeName回复',
+        'title': 'Invitation sent',
+        'message': 'Invitation sent，wait for $inviteeName reply',
         'status': 'waiting',
         'isRead': false,
         'createdAt': now,
@@ -189,10 +189,10 @@ class TaskInvitationService {
       'type': accepted
           ? 'task_invitation_accepted'
           : 'task_invitation_declined',
-      'title': accepted ? '已被接受' : '已被拒绝',
+      'title': accepted ? 'Has been accepted' : 'Has been refused',
       'message': accepted
-          ? '$userName 已接受任务：$eventTitle'
-          : '$userName 已拒绝任务：$eventTitle',
+          ? '$userName has accepted the task：$eventTitle'
+          : '$userName has refused the task：$eventTitle',
       'status': accepted ? 'accepted' : 'declined',
       'isRead': false,
       'createdAt': FieldValue.serverTimestamp(),
