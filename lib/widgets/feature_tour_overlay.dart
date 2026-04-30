@@ -208,12 +208,12 @@ class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
     required double bubbleHeightEstimate,
     required int stepIndex,
   }) {
-    final extraGapForLateSteps = stepIndex >= 2 ? 22.0 : 0.0;
+    final extraGapForLateSteps = stepIndex >= 2 ? 11.0 : 0.0;
     if (placement == TourBubblePlacement.above) {
       return double.nan;
     }
 
-    return (targetRect.bottom + 4 + extraGapForLateSteps)
+    return (targetRect.bottom + 2 + extraGapForLateSteps)
         .clamp(16.0, screenHeight - bubbleHeightEstimate - 16)
         .toDouble();
   }
@@ -227,8 +227,8 @@ class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
     if (placement != TourBubblePlacement.above) {
       return null;
     }
-    final extraGapForLateSteps = stepIndex >= 2 ? 22.0 : 0.0;
-    final gap = 34.0 + extraGapForLateSteps;
+    final extraGapForLateSteps = stepIndex >= 2 ? 11.0 : 0.0;
+    final gap = 17.0 + extraGapForLateSteps;
     final bottom = (screenHeight - targetRect.top) + gap;
     return bottom.clamp(16.0, screenHeight - 24.0).toDouble();
   }
@@ -333,6 +333,9 @@ class _TourBubble extends StatelessWidget {
                   onPressed: isBusy ? null : onPrevious,
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(112, 44),
+                    side: const BorderSide(color: Color(0xFFFAC638), width: 1.4),
+                    foregroundColor: const Color(0xFFF59E0B),
+                    backgroundColor: const Color(0xFFFFFBEB),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(999),
                     ),
@@ -344,6 +347,9 @@ class _TourBubble extends StatelessWidget {
                   onPressed: isBusy ? null : onNext,
                   style: OutlinedButton.styleFrom(
                     minimumSize: const Size(88, 44),
+                    side: const BorderSide(color: Color(0xFFFAC638), width: 1.4),
+                    foregroundColor: const Color(0xFF7C2D12),
+                    backgroundColor: const Color(0xFFFDE047),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(999),
                     ),
