@@ -310,7 +310,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       final String fileName =
           'avatar_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final Reference storageRef = FirebaseStorage.instance
+
+      final FirebaseStorage avatarStorage = FirebaseStorage.instanceFor(
+        bucket: 'gs://family-calendar-65220-au',
+      );
+
+      final Reference storageRef = avatarStorage
           .ref()
           .child('users')
           .child(currentUser.uid)
