@@ -78,11 +78,18 @@ class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
       bubbleHeightEstimate: bubbleHeightEstimate,
       stepIndex: widget.currentIndex,
     );
+    final bubbleBottom = _bubbleBottom(
+      placement: placement,
+      targetRect: targetRect,
+      screenHeight: screenSize.height,
+      stepIndex: widget.currentIndex,
+    );
     final bubbleLeft = _bubbleLeft(
       targetRect: targetRect,
       screenWidth: screenSize.width,
       bubbleWidth: bubbleWidth,
     );
+    final bubbleTopValue = bubbleTop.isNaN ? null : bubbleTop;
 
     return Stack(
       children: [
@@ -119,7 +126,8 @@ class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
         Positioned(
           left: bubbleLeft,
           width: bubbleWidth,
-          top: bubbleTop,
+          top: bubbleTopValue,
+          bottom: bubbleBottom,
           child: _TourBubble(
             title: widget.step.title,
             description: widget.step.description,
@@ -202,14 +210,27 @@ class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
   }) {
     final extraGapForLateSteps = stepIndex >= 2 ? 22.0 : 0.0;
     if (placement == TourBubblePlacement.above) {
-      return (targetRect.top - bubbleHeightEstimate - 34 - extraGapForLateSteps)
-          .clamp(16.0, screenHeight - bubbleHeightEstimate - 16)
-          .toDouble();
+      return double.nan;
     }
 
     return (targetRect.bottom + 4 + extraGapForLateSteps)
         .clamp(16.0, screenHeight - bubbleHeightEstimate - 16)
         .toDouble();
+  }
+
+  double? _bubbleBottom({
+    required TourBubblePlacement placement,
+    required Rect targetRect,
+    required double screenHeight,
+    required int stepIndex,
+  }) {
+    if (placement != TourBubblePlacement.above) {
+      return null;
+    }
+    final extraGapForLateSteps = stepIndex >= 2 ? 22.0 : 0.0;
+    final gap = 34.0 + extraGapForLateSteps;
+    final bottom = (screenHeight - targetRect.top) + gap;
+    return bottom.clamp(16.0, screenHeight - 24.0).toDouble();
   }
 
   double _bubbleLeft({
@@ -374,3 +395,4 @@ class _TourMaskPainter extends CustomPainter {
         oldDelegate.highlightRadius != highlightRadius;
   }
 }
+    final bubbleTopValue = bubbleTop.isNaN ? null : bubbleTop;
