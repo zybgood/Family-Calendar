@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../services/task_invitation_service.dart';
+import '../services/family_invitation_service.dart';
 import '../themes/app_theme.dart';
 
 class NotificationsScreen extends StatelessWidget {
@@ -131,6 +132,7 @@ class NotificationsScreen extends StatelessWidget {
     final message = (data['message'] ?? '').toString();
     final eventTitle = (data['eventTitle'] ?? '').toString();
     final senderName = (data['senderName'] ?? '').toString();
+    final familyName = (data['familyName'] ?? '').toString();
     final eventId = (data['eventId'] ?? '').toString();
     final status = (data['status'] ?? '').toString();
     final isRead = data['isRead'] == true;
@@ -138,7 +140,9 @@ class NotificationsScreen extends StatelessWidget {
     final createdAt =
     data['createdAt'] is Timestamp ? (data['createdAt'] as Timestamp).toDate() : null;
 
-    final isInvitation = type == 'task_invitation' && status == 'pending';
+    final isTaskInvitation = type == 'task_invitation' && status == 'pending';
+    final isFamilyInvitation = type == 'family_invitation' && status == 'pending';
+    final isInvitation = isTaskInvitation || isFamilyInvitation;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -194,7 +198,9 @@ class NotificationsScreen extends StatelessWidget {
               const SizedBox(height: 10),
               if (isInvitation) ...[
                 Text(
-                  '任务名称：${eventTitle.isEmpty ? 'Task' : eventTitle}',
+                  isTaskInvitation
+                      ? '任务名称：${eventTitle.isEmpty ? 'Task' : eventTitle}'
+                      : '家庭名称：${familyName.isEmpty ? 'Family' : familyName}',
                   style: const TextStyle(
                     color: _primaryColor,
                     fontSize: 14,
@@ -227,12 +233,18 @@ class NotificationsScreen extends StatelessWidget {
                   children: [
                     Expanded(
                       child: OutlinedButton(
-                        onPressed: () => _respond(
-                          context,
-                          notificationId: doc.id,
-                          eventId: eventId,
-                          accepted: false,
-                        ),
+                        onPressed: () => isTaskInvitation
+                            ? _respondTask(
+                                context,
+                                notificationId: doc.id,
+                                eventId: eventId,
+                                accepted: false,
+                              )
+                            : _respondFamily(
+                                context,
+                                notificationId: doc.id,
+                                accepted: false,
+                              ),
                         child: const Text('拒绝'),
                       ),
                     ),
@@ -243,12 +255,18 @@ class NotificationsScreen extends StatelessWidget {
                           backgroundColor: _accentColor,
                           foregroundColor: Colors.white,
                         ),
-                        onPressed: () => _respond(
-                          context,
-                          notificationId: doc.id,
-                          eventId: eventId,
-                          accepted: true,
-                        ),
+                        onPressed: () => isTaskInvitation
+                            ? _respondTask(
+                                context,
+                                notificationId: doc.id,
+                                eventId: eventId,
+                                accepted: true,
+                              )
+                            : _respondFamily(
+                                context,
+                                notificationId: doc.id,
+                                accepted: true,
+                              ),
                         child: const Text('接受'),
                       ),
                     ),
@@ -262,7 +280,7 @@ class NotificationsScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _respond(
+  Future<void> _respondTask(
       BuildContext context, {
         required String notificationId,
         required String eventId,
@@ -278,7 +296,7 @@ class NotificationsScreen extends StatelessWidget {
       if (!context.mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(accepted ? '已接受任务邀请' : '已拒绝任务邀请')),
+        SnackBar(content: Text(accepted ? '已接受邀请' : '已拒绝邀请')),
       );
     } catch (e) {
       if (!context.mounted) return;
@@ -289,6 +307,31 @@ class NotificationsScreen extends StatelessWidget {
     }
   }
 
+
+  Future<void> _respondFamily(
+      BuildContext context, {
+        required String notificationId,
+        required bool accepted,
+      }) async {
+    try {
+      await FamilyInvitationService.respondToFamilyInvitation(
+        notificationId: notificationId,
+        accepted: accepted,
+      );
+
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(accepted ? '已接受邀请' : '已拒绝邀请')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('操作失败：$e')),
+      );
+    }
+  }
   Widget _iconForType(String type) {
     IconData icon;
     Color background;
@@ -309,6 +352,18 @@ class NotificationsScreen extends StatelessWidget {
       case 'task_invitation_declined':
         icon = Icons.cancel;
         background = Colors.red.shade500;
+        break;
+      case 'family_invitation':
+        icon = Icons.group_add;
+        background = Colors.deepPurple.shade400;
+        break;
+      case 'family_invitation_accepted':
+        icon = Icons.how_to_reg;
+        background = Colors.green.shade700;
+        break;
+      case 'family_invitation_declined':
+        icon = Icons.person_off;
+        background = Colors.red.shade700;
         break;
       default:
         icon = Icons.notifications;
