@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../themes/app_theme.dart';
-
 class FeatureTourStep {
   const FeatureTourStep({
     required this.id,
@@ -187,11 +185,11 @@ class _FeatureTourOverlayState extends State<FeatureTourOverlay> {
   }
 
   TourBubblePlacement _resolvePlacement(
-    TourBubblePlacement preferred,
-    Rect targetRect,
-    Size screenSize,
-    double bubbleHeightEstimate,
-  ) {
+      TourBubblePlacement preferred,
+      Rect targetRect,
+      Size screenSize,
+      double bubbleHeightEstimate,
+      ) {
     if (preferred == TourBubblePlacement.above ||
         preferred == TourBubblePlacement.below) {
       return preferred;
@@ -272,7 +270,7 @@ class _TourBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-          child: Container(
+      child: Container(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
         decoration: BoxDecoration(
           color: const Color(0xFFF8FAFC),
@@ -331,60 +329,36 @@ class _TourBubble extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                _buildTourActionButton(
-                  label: 'Previous',
+                OutlinedButton(
                   onPressed: isBusy ? null : onPrevious,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(112, 44),
+                    side: const BorderSide(color: Color(0xFFFAC638), width: 1.4),
+                    foregroundColor: const Color(0xFFF59E0B),
+                    backgroundColor: const Color(0xFFFFFBEB),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  child: const Text('Previous'),
                 ),
                 const SizedBox(width: 12),
-                _buildTourActionButton(
-                  label: 'Next',
+                OutlinedButton(
                   onPressed: isBusy ? null : onNext,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(88, 44),
+                    side: const BorderSide(color: Color(0xFFFAC638), width: 1.4),
+                    foregroundColor: const Color(0xFF7C2D12),
+                    backgroundColor: const Color(0xFFFDE047),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                  child: const Text('Next'),
                 ),
               ],
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTourActionButton({
-    required String label,
-    required VoidCallback? onPressed,
-  }) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-          colors: [AppTheme.accent, AppTheme.accentDark],
-        ),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.accent.withOpacity(0.2),
-            blurRadius: 15,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: TextButton(
-        onPressed: onPressed,
-        style: TextButton.styleFrom(
-          minimumSize: const Size(112, 44),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-          foregroundColor: Colors.black87,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w800,
-            color: Colors.black87,
-          ),
         ),
       ),
     );
