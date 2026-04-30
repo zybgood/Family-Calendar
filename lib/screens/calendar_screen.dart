@@ -8,9 +8,11 @@ import 'package:intl/intl.dart';
 
 import '../models/task.dart';
 import '../navigation/app_bottom_nav.dart';
+import '../services/onboarding_service.dart';
 import '../themes/app_theme.dart';
 import '../widgets/bottom_navigation_bar.dart';
 import '../widgets/event_card.dart';
+import '../widgets/feature_tour_overlay.dart';
 import 'add_task_screen.dart';
 import 'edit_task_screen.dart';
 import 'notifications_screen.dart';
@@ -43,6 +45,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Stream<QuerySnapshot<Map<String, dynamic>>>? _eventsStream;
   List<_CalendarEvent> _cachedEvents = <_CalendarEvent>[];
   int _selectedNavIndex = 2;
+  final GlobalKey _calendarFabKey = GlobalKey();
+  int _onboardingIndex = 0;
+  bool _isOnboardingVisible = false;
+  bool _isOnboardingBusy = false;
   late final List<DateTime> _days;
   late int _selectedDayIndex;
 
@@ -69,6 +75,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _centerSelectedDay(animate: false);
+      _maybeStartOnboarding();
     });
   }
 
@@ -107,6 +114,112 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }
 
   DateTime get _selectedDate => _days[_selectedDayIndex];
+
+  Future<void> _maybeStartOnboarding() async {
+    final state = await OnboardingService.getCurrentState();
+    if (!mounted || state == null || !OnboardingService.shouldStart(state)) {
+      return;
+    }
+    if (state.step != OnboardingService.stepCalendarAddFab) {
+      return;
+    }
+
+    final isTargetReady = await _waitForTargetReady(_calendarFabKey);
+    if (!mounted || !isTargetReady) {
+      return;
+    }
+
+    setState(() {
+      _isOnboardingVisible = true;
+      _onboardingIndex = 0;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_isOnboardingVisible) {
+        return;
+      }
+      setState(() {});
+    });
+  }
+
+  Future<bool> _waitForTargetReady(GlobalKey key) async {
+    for (int i = 0; i < 12; i++) {
+      if (!mounted) {
+        return false;
+      }
+      if (key.currentContext != null) {
+        return true;
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 16));
+    }
+    return key.currentContext != null;
+  }
+
+  Future<void> _skipOnboarding() async {
+    if (_isOnboardingBusy) {
+      return;
+    }
+    setState(() {
+      _isOnboardingBusy = true;
+    });
+    await OnboardingService.complete();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _isOnboardingBusy = false;
+      _isOnboardingVisible = false;
+    });
+  }
+
+  Future<void> _finishOnboarding() async {
+    await _skipOnboarding();
+  }
+
+  Future<void> _nextOnboardingStep() async {
+    if (_onboardingIndexAtEnd) {
+      await _finishOnboarding();
+      return;
+    }
+
+    setState(() {
+      _onboardingIndex += 1;
+    });
+  }
+
+  Future<void> _previousOnboardingStep() async {
+    if (_onboardingIndex == 0) {
+      await OnboardingService.markStep(OnboardingService.stepNavToday);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isOnboardingVisible = false;
+      });
+      navigateFromBottomNav(
+        context,
+        targetIndex: 0,
+        currentIndex: _selectedNavIndex,
+      );
+      return;
+    }
+    setState(() {
+      _onboardingIndex -= 1;
+    });
+  }
+
+  bool get _onboardingIndexAtEnd => _onboardingIndex >= _calendarTourSteps.length - 1;
+
+  List<FeatureTourStep> get _calendarTourSteps => [
+        FeatureTourStep(
+          id: OnboardingService.stepCalendarAddFab,
+          targetKey: _calendarFabKey,
+          title: 'Add a family event',
+          description:
+              'Tap this button any time to create a new event on your calendar.',
+          preferredPlacement: TourBubblePlacement.above,
+          highlightRadius: 40,
+        ),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -161,6 +274,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       bottom: fabBottomOffset,
                       child: _buildFab(context),
                     ),
+                    if (_isOnboardingVisible)
+                      Positioned.fill(child: _buildOnboardingOverlay()),
                     Positioned(
                       left: 0,
                       right: 0,
@@ -862,6 +977,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   Widget _buildFab(BuildContext context) {
     return GestureDetector(
+      key: _calendarFabKey,
       onTap: () {
         Navigator.of(
           context,
@@ -889,6 +1005,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
           child: Icon(Icons.add, size: 28, color: Colors.white),
         ),
       ),
+    );
+  }
+
+  Widget _buildOnboardingOverlay() {
+    return FeatureTourOverlay(
+      step: _calendarTourSteps[_onboardingIndex],
+      currentIndex: 3,
+      totalSteps: 4,
+      isBusy: _isOnboardingBusy,
+      onPrevious: _previousOnboardingStep,
+      onNext: _nextOnboardingStep,
+      onSkip: _skipOnboarding,
+      onComplete: _finishOnboarding,
     );
   }
 }
