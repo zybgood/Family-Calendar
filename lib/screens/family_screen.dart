@@ -6,6 +6,7 @@ import '../navigation/app_bottom_nav.dart';
 import '../themes/app_theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/bottom_navigation_bar.dart';
+import '../services/family_invitation_service.dart';
 
 class FamilyScreen extends StatefulWidget {
   final String familyId;
@@ -191,35 +192,18 @@ class _FamilyScreenState extends State<FamilyScreen> {
         throw Exception('This user already has this family in profile');
       }
 
-      final now = Timestamp.now();
-      final batch = firestore.batch();
+      await FamilyInvitationService.createFamilyInvitation(
+        recipientId: invitedUid,
+        familyId: widget.familyId,
+        familyName: familyName,
+        familyPhotoURL: familyPhotoURL,
+      );
 
-      batch.set(userFamilyRef, {
-        'familyId': widget.familyId,
-        'familyName': familyName,
-        'joinedAt': now,
-        'photoURL': familyPhotoURL,
-        'role': 'member',
-      });
-
-      batch.set(familyRef.collection('members').doc(invitedUid), {
-        'uid': invitedUid,
-        'nickname': nickname,
-        'role': 'member',
-        'familyRole': 'member',
-        'status': 'active',
-        'joinedAt': now,
-      });
-
-      await batch.commit();
-
-      _shouldRefreshOnBack = true;
       _inviteEmailController.clear();
-      await _refreshMembers();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$nickname has been added to the family')),
+        SnackBar(content: Text('Invitation sent to $nickname')),
       );
     } catch (e) {
       if (!mounted) return;
