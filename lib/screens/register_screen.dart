@@ -212,6 +212,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         'username': fullName,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
+        'onboardingCompleted': false,
+        'onboardingStep': '',
+        'onboardingVersion': 0,
         'lastLoginAt': null,
       });
 
