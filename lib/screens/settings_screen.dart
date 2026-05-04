@@ -75,8 +75,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
         final data = userDoc.data();
 
         if (data != null) {
-          fullName = (data['fullName'] ?? 'User').toString();
-          photoURL = (data['photoURL'] ?? '').toString();
+          final username = (data['username'] ?? '').toString().trim();
+          final fullNameFromDb = (data['fullName'] ?? '').toString().trim();
+
+          if (username.isNotEmpty) {
+            fullName = username;
+          } else if (fullNameFromDb.isNotEmpty) {
+            fullName = fullNameFromDb;
+          } else {
+            fullName = 'User';
+          }
+
+          photoURL = (data['photoURL'] ?? '').toString().trim();
         }
       }
 

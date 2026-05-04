@@ -241,16 +241,44 @@ class _LoginScreenState extends State<LoginScreen> {
           'lastLoginAt': now,
         });
       } else {
-        await userDocRef.set({
-          'email': user.email ?? '',
-          'fullName': fallbackName,
-          'photoURL': user.photoURL ?? '',
+        // await userDocRef.set({
+        //   'email': user.email ?? '',
+        //   'fullName': fallbackName,
+        //   'photoURL': user.photoURL ?? '',
+        //   'status': 'active',
+        //   'emailVerified': user.emailVerified,
+        //   'loginProvider': 'google',
+        //   'lastLoginAt': now,
+        //   'updatedAt': now,
+        // }, SetOptions(merge: true));
+        final data = userDoc.data() ?? {};
+
+        final currentUsername = (data['username'] ?? '').toString().trim();
+        final currentFullName = (data['fullName'] ?? '').toString().trim();
+        final currentPhotoURL = (data['photoURL'] ?? '').toString().trim();
+
+        final updateData = <String, dynamic>{
+          'email': user.email ?? data['email'] ?? '',
           'status': 'active',
-          'emailVerified': user.emailVerified,
+          'emailVerified': true,
           'loginProvider': 'google',
           'lastLoginAt': now,
           'updatedAt': now,
-        }, SetOptions(merge: true));
+        };
+
+        if (currentUsername.isEmpty) {
+          updateData['username'] = fallbackName.replaceAll(' ', '');
+        }
+
+        if (currentFullName.isEmpty) {
+          updateData['fullName'] = fallbackName;
+        }
+
+        if (currentPhotoURL.isEmpty) {
+          updateData['photoURL'] = user.photoURL ?? '';
+        }
+
+        await userDocRef.set(updateData, SetOptions(merge: true));
       }
 
       if (!mounted) return;
