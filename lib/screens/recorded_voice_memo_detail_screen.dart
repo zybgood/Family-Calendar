@@ -3,12 +3,14 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' as intl;
 import 'package:just_audio/just_audio.dart';
 
 import '../themes/app_theme.dart';
+import 'add_task_screen.dart';
 
 class RecordedVoiceMemoDetailScreen extends StatefulWidget {
   const RecordedVoiceMemoDetailScreen({
@@ -53,12 +55,15 @@ class _RecordedVoiceMemoDetailScreenState
   StreamSubscription<PlayerState>? _playerStateSub;
   StreamSubscription<Duration?>? _durationSub;
   StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _memoSub;
   Timer? _autosaveTimer;
   Duration _duration = Duration.zero;
   Duration _position = Duration.zero;
   bool _isLoadingAudio = true;
   bool _isPlaying = false;
   bool _isSaving = false;
+  bool _isGeneratingAiNote = false;
+  bool _isAnalyzingTask = false;
   late String _originalTitle;
   late String _originalBody;
   String? _audioError;
@@ -84,6 +89,7 @@ class _RecordedVoiceMemoDetailScreenState
     _titleFocusNode = FocusNode();
     _bodyFocusNode = FocusNode();
     _bindPlayer();
+    _bindMemoUpdates();
     _loadAudio();
   }
 
@@ -144,6 +150,41 @@ class _RecordedVoiceMemoDetailScreenState
         _audioError = 'Audio is unavailable on this device.';
       });
     }
+  }
+
+  void _bindMemoUpdates() {
+    if (widget.memoId.isEmpty) {
+      return;
+    }
+
+    _memoSub = FirebaseFirestore.instance
+        .collection('memos')
+        .doc(widget.memoId)
+        .snapshots()
+        .listen((doc) {
+          final data = doc.data();
+          if (!mounted || data == null) {
+            return;
+          }
+
+          final status = (data['aiSummaryStatus'] as String?) ?? '';
+          final isGenerating = status == 'pending' || status == 'processing';
+          final body = (data['body'] as String?)?.trim() ?? '';
+
+          if (body.isNotEmpty &&
+              body != _originalBody &&
+              !_bodyFocusNode.hasFocus &&
+              !_hasChanges) {
+            _originalBody = body;
+            _bodyController.text = body;
+          }
+
+          if (_isGeneratingAiNote != isGenerating) {
+            setState(() {
+              _isGeneratingAiNote = isGenerating;
+            });
+          }
+        });
   }
 
   void _scheduleAutosave() {
@@ -227,6 +268,97 @@ class _RecordedVoiceMemoDetailScreenState
       );
   }
 
+  Future<void> _analyzeMemoAndOpenTask() async {
+    if (_isSaving || _isGeneratingAiNote || _isAnalyzingTask) {
+      return;
+    }
+
+    await _flushAutosave();
+    if (!mounted) {
+      return;
+    }
+
+    final memoTitle = _titleController.text.trim().isEmpty
+        ? _autoTitle(widget.createdAt)
+        : _titleController.text.trim();
+    final memoBody = _bodyController.text.trim();
+
+    if (memoBody.isEmpty) {
+      _showMessage('Detail cannot be empty.');
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+    await _player.pause();
+
+    setState(() {
+      _isAnalyzingTask = true;
+    });
+
+    try {
+      final callable = FirebaseFunctions.instanceFor(
+        region: 'australia-southeast1',
+      ).httpsCallable('analyzeMemoToTask');
+
+      final result = await callable.call(<String, dynamic>{
+        'title': memoTitle,
+        'body': memoBody,
+        'timezone': DateTime.now().timeZoneName,
+        'currentDateISO': _currentDateISO(),
+      });
+
+      final data = Map<String, dynamic>.from(result.data as Map);
+      final draft = _MemoTaskDraft.fromMap(data);
+
+      if (!mounted) {
+        return;
+      }
+
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => AddTaskScreen(
+            initialTitle: draft.title.isNotEmpty ? draft.title : memoTitle,
+            initialNotes: draft.notes.isNotEmpty ? draft.notes : memoBody,
+            initialDate: draft.date,
+            initialTime: draft.time,
+            initialCategory: draft.category,
+          ),
+        ),
+      );
+    } on FirebaseFunctionsException catch (error) {
+      _showMessage(_mapFunctionError(error));
+    } catch (_) {
+      _showMessage('Failed to analyze memo. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAnalyzingTask = false;
+        });
+      }
+    }
+  }
+
+  String _mapFunctionError(FirebaseFunctionsException error) {
+    switch (error.code) {
+      case 'unauthenticated':
+        return 'Please sign in to continue.';
+      case 'invalid-argument':
+        return 'This memo does not have enough content to analyze.';
+      case 'resource-exhausted':
+        return 'Too many requests. Please wait a few seconds.';
+      default:
+        return error.message ?? 'AI analysis failed. Please try again.';
+    }
+  }
+
+  String _currentDateISO() {
+    final now = DateTime.now();
+    final year = now.year.toString().padLeft(4, '0');
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
   Future<void> _togglePlayback() async {
     if (_isLoadingAudio || _audioError != null) {
       return;
@@ -285,6 +417,7 @@ class _RecordedVoiceMemoDetailScreenState
     _playerStateSub?.cancel();
     _durationSub?.cancel();
     _positionSub?.cancel();
+    _memoSub?.cancel();
     _player.dispose();
     _titleFocusNode.dispose();
     _bodyFocusNode.dispose();
@@ -368,43 +501,53 @@ class _RecordedVoiceMemoDetailScreenState
               ),
             ),
           ),
-          InkWell(
-            borderRadius: BorderRadius.circular(999),
-            onTap: _isSaving
-                ? null
-                : () async {
-                    await _saveMemo(showMessage: true);
-                    if (mounted) {
-                      await _handleBackNavigation();
-                    }
-                  },
-            child: Container(
-              width: 42,
-              height: 42,
-              decoration: BoxDecoration(
-                color: _accentColor.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: const Color(0xFFFFE3A3)),
-              ),
-              child: Center(
-                child: _isSaving
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: _accentColor,
-                        ),
-                      )
-                    : const Icon(
-                        Icons.check_rounded,
-                        color: Color(0xFF9A6B00),
-                        size: 23,
-                      ),
-              ),
-            ),
-          ),
+          _buildAddTaskAction(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildAddTaskAction() {
+    final isDisabled = _isAnalyzingTask || _isSaving || _isGeneratingAiNote;
+
+    return Opacity(
+      opacity: isDisabled ? 0.72 : 1,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: isDisabled ? null : _analyzeMemoAndOpenTask,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: _accentColor.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: const Color(0xFFFFE3A3)),
+            boxShadow: [
+              BoxShadow(
+                color: _accentColor.withValues(alpha: 0.1),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Center(
+            child: isDisabled
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: _accentColor,
+                    ),
+                  )
+                : const Icon(
+                    Icons.auto_awesome_rounded,
+                    color: Color(0xFF9A6B00),
+                    size: 20,
+                  ),
+          ),
+        ),
       ),
     );
   }
@@ -584,24 +727,53 @@ class _RecordedVoiceMemoDetailScreenState
           ),
         ],
       ),
-      child: TextField(
-        controller: _bodyController,
-        focusNode: _bodyFocusNode,
-        keyboardType: TextInputType.multiline,
-        minLines: 5,
-        maxLines: 9,
-        onTapOutside: (_) => _dismissKeyboard(),
-        decoration: const InputDecoration(
-          hintText: 'Write notes for this voice memo...',
-          border: InputBorder.none,
-          isCollapsed: true,
-        ),
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w400,
-          color: Color(0xFF334155),
-          height: 1.6,
-        ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_isGeneratingAiNote) ...[
+            const Row(
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: _accentColor,
+                  ),
+                ),
+                SizedBox(width: 10),
+                Text(
+                  'Summarizing voice memo...',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+          ],
+          TextField(
+            controller: _bodyController,
+            focusNode: _bodyFocusNode,
+            keyboardType: TextInputType.multiline,
+            minLines: 5,
+            maxLines: 9,
+            onTapOutside: (_) => _dismissKeyboard(),
+            decoration: const InputDecoration(
+              hintText: 'Write notes for this voice memo...',
+              border: InputBorder.none,
+              isCollapsed: true,
+            ),
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+              color: Color(0xFF334155),
+              height: 1.6,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -756,4 +928,62 @@ class _VoiceWaveformPainter extends CustomPainter {
 
 class _RecordedVoiceMemoColors {
   static const primary = Color(0xFF111827);
+}
+
+class _MemoTaskDraft {
+  const _MemoTaskDraft({
+    required this.title,
+    required this.notes,
+    required this.category,
+    required this.date,
+    required this.time,
+  });
+
+  final String title;
+  final String notes;
+  final String? category;
+  final DateTime? date;
+  final TimeOfDay? time;
+
+  factory _MemoTaskDraft.fromMap(Map<String, dynamic> map) {
+    final date = _parseDate(map['dateISO'] as String?);
+    final time = _parseTime(map['time24h'] as String?);
+
+    return _MemoTaskDraft(
+      title: (map['title'] as String? ?? '').trim(),
+      notes: (map['notes'] as String? ?? '').trim(),
+      category: (map['category'] as String?)?.trim(),
+      date: date,
+      time: time,
+    );
+  }
+
+  static DateTime? _parseDate(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return DateTime.tryParse(value.trim());
+  }
+
+  static TimeOfDay? _parseTime(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+
+    final parts = value.trim().split(':');
+    if (parts.length != 2) {
+      return null;
+    }
+
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) {
+      return null;
+    }
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      return null;
+    }
+
+    return TimeOfDay(hour: hour, minute: minute);
+  }
 }

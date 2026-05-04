@@ -1,16 +1,33 @@
 /* eslint-disable */
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
+import {execFile} from "child_process";
+import {promisify} from "util";
 import OpenAI from "openai";
 import {setGlobalOptions} from "firebase-functions/v2";
+import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {defineSecret} from "firebase-functions/params";
 import * as logger from "firebase-functions/logger";
+import {initializeApp} from "firebase-admin/app";
+import {FieldValue, getFirestore} from "firebase-admin/firestore";
+import {getStorage} from "firebase-admin/storage";
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 
+initializeApp();
 setGlobalOptions({maxInstances: 10});
 
 const openAiKeySecret = defineSecret("OPENAI_API_KEY");
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const DEFAULT_TIMEZONE = "Australia/Adelaide";
 const MAX_SUMMARY_CHARS = 150;
+const RECORDING_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
+const RECORDING_SUMMARY_MODEL = "gpt-4o-mini";
+const MAX_TRANSCRIPTION_FILE_BYTES = 24 * 1024 * 1024;
+const AUDIO_SEGMENT_SECONDS = 20 * 60;
+const NO_RECOGNIZED_INFO = "No information.";
+const execFileAsync = promisify(execFile);
 
 interface DraftEvent {
   title: string;
@@ -57,6 +74,16 @@ interface AnalyzeMemoTaskRequest {
   body?: unknown;
   timezone?: unknown;
   currentDateISO?: unknown;
+}
+
+interface SummarizeRecordedVoiceMemoRequest {
+  memoId?: unknown;
+}
+
+interface RecordedVoiceMemoSummaryResponse {
+  status: string;
+  summary: string;
+  transcriptChunkCount: number;
 }
 
 interface MemoTaskDraftResponse {
@@ -403,6 +430,291 @@ const buildVoiceMemoFallback = (input: string): VoiceMemoSummaryResponse => {
   };
 };
 
+const parseRecordedMemoSummaryJson = (content: string): string => {
+  let parsed: unknown;
+  try {
+    const trimmed = content.trim();
+    const jsonContent =
+      trimmed.startsWith("```") ?
+        trimmed.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "") :
+        trimmed;
+    parsed = JSON.parse(jsonContent);
+  } catch (error) {
+    logger.error("Recorded voice memo summary response is not valid JSON", error);
+    throw new HttpsError("internal", "AI response format error.");
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new HttpsError("internal", "AI response format invalid.");
+  }
+
+  const summary = (parsed as Record<string, unknown>).summary;
+  if (typeof summary !== "string") {
+    throw new HttpsError("internal", "AI response missing summary.");
+  }
+
+  return summary.replace(/\s+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+};
+
+const runFfmpeg = async (args: string[]): Promise<void> => {
+  await execFileAsync(ffmpegInstaller.path, args, {maxBuffer: 1024 * 1024 * 8});
+};
+
+const listSegmentFiles = (dir: string): string[] => {
+  return fs.readdirSync(dir)
+    .filter((name) => /^chunk_\d+\.m4a$/.test(name))
+    .sort()
+    .map((name) => path.join(dir, name))
+    .filter((filePath) => fs.statSync(filePath).size > 0);
+};
+
+const splitAudioForTranscription = async (
+  inputPath: string,
+  workDir: string
+): Promise<string[]> => {
+  if (fs.statSync(inputPath).size <= MAX_TRANSCRIPTION_FILE_BYTES) {
+    return [inputPath];
+  }
+
+  let segmentSeconds = AUDIO_SEGMENT_SECONDS;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const segmentDir = path.join(workDir, `segments_${attempt}`);
+    fs.rmSync(segmentDir, {recursive: true, force: true});
+    fs.mkdirSync(segmentDir, {recursive: true});
+    const outputPattern = path.join(segmentDir, "chunk_%03d.m4a");
+
+    const baseArgs = [
+      "-y",
+      "-i",
+      inputPath,
+      "-vn",
+      "-f",
+      "segment",
+      "-segment_time",
+      String(segmentSeconds),
+      "-reset_timestamps",
+      "1",
+    ];
+
+    try {
+      await runFfmpeg([...baseArgs, "-c", "copy", outputPattern]);
+    } catch (_) {
+      await runFfmpeg([
+        ...baseArgs,
+        "-c:a",
+        "aac",
+        "-b:a",
+        "64k",
+        "-ac",
+        "1",
+        "-ar",
+        "44100",
+        outputPattern,
+      ]);
+    }
+
+    const chunks = listSegmentFiles(segmentDir);
+    if (
+      chunks.length > 0 &&
+      chunks.every((chunk) => fs.statSync(chunk).size <= MAX_TRANSCRIPTION_FILE_BYTES)
+    ) {
+      return chunks;
+    }
+
+    segmentSeconds = Math.max(120, Math.floor(segmentSeconds / 2));
+  }
+
+  throw new HttpsError("resource-exhausted", "Recording is too large to process.");
+};
+
+const transcribeAudioChunks = async (
+  openai: OpenAI,
+  chunkPaths: string[]
+): Promise<string[]> => {
+  const transcripts: string[] = [];
+
+  for (const [index, chunkPath] of chunkPaths.entries()) {
+    const transcription = await openai.audio.transcriptions.create({
+      file: fs.createReadStream(chunkPath),
+      model: RECORDING_TRANSCRIBE_MODEL,
+      response_format: "json",
+      prompt: [
+        "This is a personal voice memo for a family calendar app.",
+        "Transcribe accurately in the spoken language.",
+        "Preserve names, dates, times, task wording, and reminders.",
+        `This is segment ${index + 1} of ${chunkPaths.length}.`,
+      ].join(" "),
+    });
+
+    const text = typeof transcription === "string" ?
+      transcription :
+      transcription.text;
+    const cleaned = (text || "").replace(/\s+/g, " ").trim();
+    if (cleaned) {
+      transcripts.push(cleaned);
+    }
+  }
+
+  return transcripts;
+};
+
+const summarizeRecordedTranscript = async (
+  openai: OpenAI,
+  transcript: string
+): Promise<string> => {
+  const systemPrompt = [
+    "You summarize recorded voice memos for a family calendar app.",
+    "The transcript may contain multiple chronological chunks from one recording.",
+    "Create note text that is useful inside the memo's Notes field.",
+    "Do not reveal or quote the raw transcript.",
+    "Do not mention transcription, chunks, audio quality, or AI.",
+    "Preserve concrete names, dates, times, places, tasks, and decisions.",
+    "Do not invent details that are not present.",
+    `If there is no meaningful information, return ${JSON.stringify(NO_RECOGNIZED_INFO)}.`,
+  ].join(" ");
+
+  const developerPrompt = [
+    "Return JSON only.",
+    "Schema: { \"summary\": \"string\" }",
+    "Write the summary in English, regardless of the transcript language.",
+    "Use a concise paragraph or short bullet-style lines.",
+    "Keep the summary under 900 characters.",
+    "Include clear action items or reminders when they are present.",
+  ].join("\n");
+
+  const completion = await openai.chat.completions.create({
+    model: RECORDING_SUMMARY_MODEL,
+    temperature: 0.2,
+    response_format: {type: "json_object"},
+    messages: [
+      {role: "system", content: systemPrompt},
+      {role: "developer", content: developerPrompt},
+      {role: "user", content: `Transcript:\n${transcript}`},
+    ],
+  });
+
+  const content = completion.choices[0]?.message?.content;
+  if (!content) {
+    throw new HttpsError("internal", "No response from AI model.");
+  }
+
+  return parseRecordedMemoSummaryJson(content) || NO_RECOGNIZED_INFO;
+};
+
+const processRecordedVoiceMemo = async (
+  memoId: string,
+  expectedUserId?: string
+): Promise<RecordedVoiceMemoSummaryResponse> => {
+  const apiKey = openAiKeySecret.value() || process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    logger.error("OPENAI_API_KEY is missing");
+    throw new HttpsError("internal", "Server is not configured for AI service.");
+  }
+
+  const firestore = getFirestore();
+  const memoRef = firestore.collection("memos").doc(memoId);
+  const memoSnapshot = await memoRef.get();
+  if (!memoSnapshot.exists) {
+    throw new HttpsError("not-found", "Voice memo was not found.");
+  }
+
+  const memo = memoSnapshot.data() ?? {};
+  const memoUserId = typeof memo.userId === "string" ? memo.userId : "";
+  if (expectedUserId && memoUserId !== expectedUserId) {
+    throw new HttpsError("permission-denied", "You cannot summarize this memo.");
+  }
+
+  const existingStatus =
+    typeof memo.aiSummaryStatus === "string" ? memo.aiSummaryStatus : "";
+  const existingBody = typeof memo.body === "string" ? memo.body.trim() : "";
+  if (existingStatus && existingStatus !== "pending") {
+    return {
+      status: existingStatus,
+      summary: existingBody,
+      transcriptChunkCount:
+        typeof memo.transcriptChunkCount === "number" ? memo.transcriptChunkCount : 0,
+    };
+  }
+
+  const audioStoragePath =
+    typeof memo.audioStoragePath === "string" ? memo.audioStoragePath.trim() : "";
+  if (!audioStoragePath) {
+    await memoRef.update({
+      aiSummaryStatus: "failed",
+      aiSummaryError: "Missing uploaded audio.",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    throw new HttpsError("failed-precondition", "Uploaded audio is not available.");
+  }
+
+  await memoRef.update({
+    aiSummaryStatus: "processing",
+    aiSummaryError: FieldValue.delete(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `voice-memo-${memoId}-`));
+  const inputPath = path.join(tempDir, "recording.m4a");
+  const openai = new OpenAI({apiKey});
+
+  try {
+    await getStorage().bucket().file(audioStoragePath).download({
+      destination: inputPath,
+    });
+
+    const chunkPaths = await splitAudioForTranscription(inputPath, tempDir);
+    const transcripts = await transcribeAudioChunks(openai, chunkPaths);
+    const fullTranscript = transcripts.join("\n\n").trim();
+
+    if (!fullTranscript) {
+      await memoRef.update({
+        body: NO_RECOGNIZED_INFO,
+        aiSummaryStatus: "no_speech",
+        aiSummaryModel: RECORDING_SUMMARY_MODEL,
+        aiTranscriptionModel: RECORDING_TRANSCRIBE_MODEL,
+        transcriptChunkCount: chunkPaths.length,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return {
+        status: "no_speech",
+        summary: NO_RECOGNIZED_INFO,
+        transcriptChunkCount: chunkPaths.length,
+      };
+    }
+
+    const summary = await summarizeRecordedTranscript(openai, fullTranscript);
+    await memoRef.update({
+      body: summary,
+      aiSummaryStatus: summary === NO_RECOGNIZED_INFO ? "no_speech" : "completed",
+      aiSummaryModel: RECORDING_SUMMARY_MODEL,
+      aiTranscriptionModel: RECORDING_TRANSCRIBE_MODEL,
+      transcriptChunkCount: chunkPaths.length,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return {
+      status: summary === NO_RECOGNIZED_INFO ? "no_speech" : "completed",
+      summary,
+      transcriptChunkCount: chunkPaths.length,
+    };
+  } catch (error) {
+    logger.error("processRecordedVoiceMemo failed", error);
+    await memoRef.update({
+      aiSummaryStatus: "failed",
+      aiSummaryError: error instanceof Error ? error.message : "Processing failed.",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    throw new HttpsError("internal", "Failed to summarize recording.");
+  } finally {
+    fs.rmSync(tempDir, {recursive: true, force: true});
+  }
+};
+
 export const chatWithAI = onCall(
   {secrets: [openAiKeySecret], region: "australia-southeast1" },
   async (request): Promise<ChatWithAIResponse> => {
@@ -592,6 +904,57 @@ export const summarizeVoiceMemo = onCall(
       logger.error("summarizeVoiceMemo failed", error);
       return buildVoiceMemoFallback(input);
     }
+  }
+);
+
+export const summarizeRecordedVoiceMemo = onCall(
+  {
+    secrets: [openAiKeySecret],
+    region: "australia-southeast1",
+    timeoutSeconds: 540,
+    memory: "1GiB",
+  },
+  async (request): Promise<RecordedVoiceMemoSummaryResponse> => {
+    if (!request.auth?.uid) {
+      throw new HttpsError("unauthenticated", "You must be logged in to summarize a recording.");
+    }
+
+    pruneAndCheckRateLimit(request.auth.uid);
+
+    const data = (request.data ?? {}) as SummarizeRecordedVoiceMemoRequest;
+    const memoId = typeof data.memoId === "string" ? data.memoId.trim() : "";
+    if (!memoId) {
+      throw new HttpsError("invalid-argument", "memoId is required.");
+    }
+
+    return processRecordedVoiceMemo(memoId, request.auth.uid);
+  }
+);
+
+export const summarizeRecordedVoiceMemoOnCreate = onDocumentCreated(
+  {
+    document: "memos/{memoId}",
+    secrets: [openAiKeySecret],
+    region: "australia-southeast1",
+    timeoutSeconds: 540,
+    memory: "1GiB",
+  },
+  async (event): Promise<void> => {
+    const memo = event.data?.data();
+    if (!memo) {
+      return;
+    }
+
+    if (
+      memo.memoType !== "voice" ||
+      memo.aiSummaryStatus !== "pending" ||
+      typeof memo.audioStoragePath !== "string" ||
+      memo.audioStoragePath.trim().length === 0
+    ) {
+      return;
+    }
+
+    await processRecordedVoiceMemo(event.params.memoId);
   }
 );
 

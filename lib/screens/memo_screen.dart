@@ -325,7 +325,7 @@ class _MemoScreenState extends State<MemoScreen>
       await _audioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
-          bitRate: 96000,
+          bitRate: 64000,
           sampleRate: 44100,
           numChannels: 1,
           noiseSuppress: true,
@@ -498,6 +498,7 @@ class _MemoScreenState extends State<MemoScreen>
         'audioStoragePath': storagePath,
         'localAudioPath': audioPath,
         'audioDurationMillis': duration.inMilliseconds,
+        'aiSummaryStatus': uploadFailed ? 'failed' : 'pending',
         'createdAtLocalMillis': createdAt.millisecondsSinceEpoch,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -1284,21 +1285,6 @@ class _MemoScreenState extends State<MemoScreen>
   }
 
   Widget _buildVoiceComposerOverlay() {
-    final statusLabel = _isCreatingVoiceMemo
-        ? 'Saving your voice memo'
-        : _isVoiceTransitioning
-        ? (_isRecordingSessionActive
-              ? 'Preparing recording'
-              : 'Finishing recording')
-        : _isListening
-        ? 'Recording in progress'
-        : 'Ready to save';
-    final helperLabel = _isCreatingVoiceMemo
-        ? 'Your audio is being attached before the detail page opens.'
-        : _isRecordingSessionActive
-        ? 'Tap the center button again to finish and open the voice memo.'
-        : 'Tap the microphone button to start a new recording.';
-
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -1319,21 +1305,18 @@ class _MemoScreenState extends State<MemoScreen>
                 if (_isRecordingSessionActive && !_isCreatingVoiceMemo)
                   Align(
                     alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: _isVoiceTransitioning
-                          ? null
-                          : () => _stopVoiceMemoCreation(save: false),
-                      icon: const Icon(Icons.close_rounded, size: 18),
-                      label: const Text('Cancel'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xFF475569),
-                        backgroundColor: Colors.white.withValues(alpha: 0.88),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(999),
+                    child: Tooltip(
+                      message: 'Cancel',
+                      child: IconButton(
+                        onPressed: _isVoiceTransitioning
+                            ? null
+                            : () => _stopVoiceMemoCreation(save: false),
+                        icon: const Icon(Icons.close_rounded, size: 22),
+                        color: const Color(0xFF475569),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(alpha: 0.88),
+                          fixedSize: const Size(44, 44),
+                          shape: const CircleBorder(),
                         ),
                       ),
                     ),
@@ -1342,28 +1325,6 @@ class _MemoScreenState extends State<MemoScreen>
                 RepaintBoundary(child: _buildVoiceWaveBubble()),
                 const SizedBox(height: 18),
                 _buildRecordingDurationCard(),
-                const SizedBox(height: 18),
-                Text(
-                  statusLabel,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                    color: primaryColor,
-                    letterSpacing: -0.3,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  helperLabel,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF64748B),
-                    height: 1.5,
-                  ),
-                ),
               ],
             ),
           ),
@@ -1444,7 +1405,7 @@ class _MemoScreenState extends State<MemoScreen>
   Widget _buildRecordingDurationCard() {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(28),
@@ -1492,19 +1453,6 @@ class _MemoScreenState extends State<MemoScreen>
                 fontWeight: FontWeight.w900,
                 color: primaryColor,
                 height: 1,
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          const Center(
-            child: Text(
-              'You can add typed notes on the detail page after saving.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF64748B),
-                height: 1.45,
               ),
             ),
           ),
