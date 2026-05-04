@@ -264,60 +264,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
-  // @override
-  // Widget build(BuildContext context) {
-  //   return Scaffold(
-  //     backgroundColor: bgColor,
-  //     body: SafeArea(
-  //       child: LayoutBuilder(
-  //         builder: (context, constraints) {
-  //           return SingleChildScrollView(
-  //             child: ConstrainedBox(
-  //               constraints: BoxConstraints(minHeight: constraints.maxHeight),
-  //               child: Center(
-  //                 child: Padding(
-  //                   padding: const EdgeInsets.symmetric(
-  //                     horizontal: 24,
-  //                     vertical: 24,
-  //                   ),
-  //                   child: ConstrainedBox(
-  //                     constraints: const BoxConstraints(maxWidth: 440),
-  //                     child: Column(
-  //                       mainAxisAlignment: MainAxisAlignment.center,
-  //                       crossAxisAlignment: CrossAxisAlignment.center,
-  //                       children: [
-  //                         _buildLogoHeader(),
-  //                         const SizedBox(height: 24),
-  //                         _buildRegisterCard(),
-  //                       ],
-  //                     ),
-  //                   ),
-  //                 ),
-  //               ),
-  //             ),
-  //           );
-  //         },
-  //       ),
-  //     ),
-  //   );
-  // }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: true,
       backgroundColor: bgColor,
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
+            final isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
+
             final isSmallHeight = constraints.maxHeight < 760;
             final isVerySmallHeight = constraints.maxHeight < 700;
 
-            final logoSize = isVerySmallHeight
+            final logoSize = isKeyboardOpen
+                ? 120.0
+                : isVerySmallHeight
                 ? 135.0
                 : isSmallHeight
                 ? 160.0
                 : 220.0;
 
-            final topPadding = isVerySmallHeight
+            final topPadding = isKeyboardOpen
+                ? 6.0
+                : isVerySmallHeight
                 ? 8.0
                 : isSmallHeight
                 ? 12.0
@@ -325,34 +295,44 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
             final sidePadding = isVerySmallHeight ? 18.0 : 24.0;
 
-            final gapAfterLogo = isVerySmallHeight
+            final gapAfterLogo = isKeyboardOpen
+                ? 6.0
+                : isVerySmallHeight
                 ? 10.0
                 : isSmallHeight
                 ? 14.0
                 : 24.0;
 
-            return Align(
-              alignment: Alignment.topCenter,
-              child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                  sidePadding,
-                  topPadding,
-                  sidePadding,
-                  12,
+            return SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: constraints.maxHeight,
                 ),
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 440),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      _buildLogoHeader(size: logoSize),
-                      SizedBox(height: gapAfterLogo),
-                      _buildRegisterCard(
-                        compact: isSmallHeight,
-                        veryCompact: isVerySmallHeight,
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      sidePadding,
+                      topPadding,
+                      sidePadding,
+                      12,
+                    ),
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 440),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          _buildLogoHeader(size: logoSize),
+                          SizedBox(height: gapAfterLogo),
+                          _buildRegisterCard(
+                            compact: isSmallHeight || isKeyboardOpen,
+                            veryCompact: isVerySmallHeight || isKeyboardOpen,
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -362,6 +342,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       ),
     );
   }
+
   // Widget _buildLogoHeader() {
   //   return Column(
   //     crossAxisAlignment: CrossAxisAlignment.center,
