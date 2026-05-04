@@ -49,8 +49,8 @@ class FamilyInvitationService {
       'familyName': familyName,
       'familyPhotoURL': familyPhotoURL,
       'type': 'family_invitation',
-      'title': '家庭邀请',
-      'message': '$senderName 邀请你加入家庭：$familyName',
+      'title': 'Family invitation',
+      'message': '$senderName invite you to join the family：$familyName',
       'status': 'pending',
       'isRead': false,
       'createdAt': now,
@@ -144,10 +144,10 @@ class FamilyInvitationService {
           'type': accepted
               ? 'family_invitation_accepted'
               : 'family_invitation_declined',
-          'title': accepted ? '家庭邀请已接受' : '家庭邀请已拒绝',
+          'title': accepted ? 'Family invitation accepted' : 'Family invitation refused',
           'message': accepted
-              ? '已接受加入家庭：$familyName'
-              : '已拒绝加入家庭：$familyName',
+              ? 'Accepted to join the family：$familyName'
+              : 'Refused to join the family：$familyName',
           'status': accepted ? 'accepted' : 'declined',
           'isRead': false,
           'createdAt': FieldValue.serverTimestamp(),
