@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
+import '../services/realtime_memo_transcription_service.dart';
 import '../themes/app_theme.dart';
 import 'add_task_screen.dart';
 
@@ -59,6 +60,8 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
   late final FocusNode _bodyFocusNode;
   late final ScrollController _bodyScrollController;
   final stt.SpeechToText _speech = stt.SpeechToText();
+  final RealtimeMemoTranscriptionService _realtimeTranscription =
+      RealtimeMemoTranscriptionService();
   late final AnimationController _voiceBarsController;
 
   late String _originalTitle;
@@ -151,7 +154,11 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
     }
   }
 
-  bool get _isSpeechActive => _isListening || _speech.isListening;
+  bool get _isSpeechActive {
+    return _isListening ||
+        _speech.isListening ||
+        _realtimeTranscription.isActive;
+  }
 
   Future<bool> _ensureSpeechReady() async {
     if (_speechReady) {
@@ -203,6 +210,7 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
     _voiceSessionId++;
 
     try {
+      await _realtimeTranscription.cancel();
       await _speech.cancel();
     } catch (_) {
       // Keep the page responsive even if the plugin cannot cancel cleanly.
@@ -529,12 +537,6 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
       return;
     }
 
-    final ready = await _ensureSpeechReady();
-    if (!ready) {
-      _showMessage('Voice input is not available on this device.');
-      return;
-    }
-
     if (!mounted) {
       return;
     }
@@ -567,50 +569,28 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
     final sessionId = ++_voiceSessionId;
 
     try {
-      await _speech.listen(
-        listenFor: const Duration(minutes: 5),
-        pauseFor: const Duration(seconds: 8),
-        listenOptions: stt.SpeechListenOptions(
-          listenMode: stt.ListenMode.dictation,
-          partialResults: true,
-        ),
-        onSoundLevelChange: (level) {
-          if (!mounted || sessionId != _voiceSessionId) {
-            return;
-          }
-          setState(() {
-            _soundLevel = level;
-          });
-        },
-        onResult: (result) {
-          if (!mounted || sessionId != _voiceSessionId) {
-            return;
-          }
-
-          final transcript = result.recognizedWords.trim();
-          final nextText = transcript.isEmpty
-              ? voiceBaseText.trimRight()
-              : '$voiceBaseText$transcript';
-
-          controller.value = TextEditingValue(
-            text: nextText,
-            selection: TextSelection.collapsed(offset: nextText.length),
-          );
-        },
+      await _startRealtimeListening(
+        sessionId: sessionId,
+        controller: controller,
+        voiceBaseText: voiceBaseText,
       );
-
+    } catch (_) {
+      await _realtimeTranscription.cancel();
       if (!mounted || sessionId != _voiceSessionId) {
         return;
       }
 
-      setState(() {
-        _isListening = true;
-        _soundLevel = 0;
-      });
-    } catch (_) {
-      _voiceSessionId++;
-      _resetVoiceUiState();
-      _showMessage('Unable to start voice input. Please try again.');
+      try {
+        await _startDeviceSpeechFallback(
+          sessionId: sessionId,
+          controller: controller,
+          voiceBaseText: voiceBaseText,
+        );
+      } catch (_) {
+        _voiceSessionId++;
+        _resetVoiceUiState();
+        _showMessage('Unable to start voice input. Please try again.');
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -618,6 +598,117 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
         });
       }
     }
+  }
+
+  Future<void> _startRealtimeListening({
+    required int sessionId,
+    required TextEditingController controller,
+    required String voiceBaseText,
+  }) async {
+    await _realtimeTranscription.start(
+      onTranscriptChanged: (transcript) {
+        if (!mounted || sessionId != _voiceSessionId) {
+          return;
+        }
+
+        _applyVoiceTranscript(controller, voiceBaseText, transcript);
+      },
+      onSoundLevelChanged: (level) {
+        if (!mounted || sessionId != _voiceSessionId) {
+          return;
+        }
+
+        setState(() {
+          _soundLevel = level;
+        });
+      },
+      onSessionEnded: () {
+        if (!mounted || sessionId != _voiceSessionId || _isVoiceTransitioning) {
+          return;
+        }
+
+        setState(() {
+          _isListening = false;
+          _soundLevel = 0;
+        });
+        _stopVoiceBars();
+      },
+    );
+
+    if (!mounted || sessionId != _voiceSessionId) {
+      return;
+    }
+
+    setState(() {
+      _isListening = true;
+      _soundLevel = 0;
+    });
+  }
+
+  Future<void> _startDeviceSpeechFallback({
+    required int sessionId,
+    required TextEditingController controller,
+    required String voiceBaseText,
+  }) async {
+    final ready = await _ensureSpeechReady();
+    if (!ready) {
+      throw const RealtimeTranscriptionException(
+        'Device speech input is unavailable.',
+      );
+    }
+
+    await _speech.listen(
+      listenFor: const Duration(minutes: 5),
+      pauseFor: const Duration(seconds: 8),
+      listenOptions: stt.SpeechListenOptions(
+        listenMode: stt.ListenMode.dictation,
+        partialResults: true,
+      ),
+      onSoundLevelChange: (level) {
+        if (!mounted || sessionId != _voiceSessionId) {
+          return;
+        }
+        setState(() {
+          _soundLevel = level;
+        });
+      },
+      onResult: (result) {
+        if (!mounted || sessionId != _voiceSessionId) {
+          return;
+        }
+
+        _applyVoiceTranscript(
+          controller,
+          voiceBaseText,
+          result.recognizedWords,
+        );
+      },
+    );
+
+    if (!mounted || sessionId != _voiceSessionId) {
+      return;
+    }
+
+    setState(() {
+      _isListening = true;
+      _soundLevel = 0;
+    });
+  }
+
+  void _applyVoiceTranscript(
+    TextEditingController controller,
+    String voiceBaseText,
+    String transcript,
+  ) {
+    final cleanedTranscript = transcript.trim();
+    final nextText = cleanedTranscript.isEmpty
+        ? voiceBaseText.trimRight()
+        : '$voiceBaseText$cleanedTranscript';
+
+    controller.value = TextEditingValue(
+      text: nextText,
+      selection: TextSelection.collapsed(offset: nextText.length),
+    );
   }
 
   Future<void> _stopListening() async {
@@ -630,7 +721,9 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
     });
 
     try {
-      if (_speech.isListening || _isListening) {
+      if (_realtimeTranscription.isActive) {
+        await _realtimeTranscription.stop();
+      } else if (_speech.isListening || _isListening) {
         await _speech.stop();
       }
     } catch (_) {
@@ -712,6 +805,7 @@ class _MemoDetailScreenState extends State<MemoDetailScreen>
   void dispose() {
     _autosaveTimer?.cancel();
     _voiceBarsController.dispose();
+    unawaited(_realtimeTranscription.dispose());
     _speech.cancel();
     _titleFocusNode
       ..removeListener(_handleFocusChange)

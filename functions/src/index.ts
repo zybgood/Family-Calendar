@@ -22,6 +22,8 @@ const openAiKeySecret = defineSecret("OPENAI_API_KEY");
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 const DEFAULT_TIMEZONE = "Australia/Adelaide";
 const MAX_SUMMARY_CHARS = 150;
+const REALTIME_TRANSCRIBE_MODEL = "gpt-realtime-whisper";
+const REALTIME_TRANSCRIBE_SAMPLE_RATE = 24000;
 const RECORDING_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
 const RECORDING_SUMMARY_MODEL = "gpt-4o-mini";
 const MAX_TRANSCRIPTION_FILE_BYTES = 24 * 1024 * 1024;
@@ -67,6 +69,13 @@ interface VoiceMemoSummaryResponse {
   keyPoints: string[];
   actionItems: string[];
   category: string;
+}
+
+interface RealtimeTranscriptionClientSecretResponse {
+  clientSecret: string;
+  expiresAt: number;
+  model: string;
+  sampleRate: number;
 }
 
 interface AnalyzeMemoTaskRequest {
@@ -570,7 +579,9 @@ const summarizeRecordedTranscript = async (
     "Do not mention transcription, chunks, audio quality, or AI.",
     "Preserve concrete names, dates, times, places, tasks, and decisions.",
     "Do not invent details that are not present.",
-    `If there is no meaningful information, return ${JSON.stringify(NO_RECOGNIZED_INFO)}.`,
+    "The transcript may be long, fragmented, disfluent, or separated by pauses.",
+    "If any recognizable content is present, summarize the useful partial information.",
+    `Return ${JSON.stringify(NO_RECOGNIZED_INFO)} only when the transcript contains no recognizable words or only meaningless filler.`,
   ].join(" ");
 
   const developerPrompt = [
@@ -580,6 +591,7 @@ const summarizeRecordedTranscript = async (
     "Use a concise paragraph or short bullet-style lines.",
     "Keep the summary under 900 characters.",
     "Include clear action items or reminders when they are present.",
+    `Do not return ${NO_RECOGNIZED_INFO} solely because the memo is long, broken up, or lacks a perfect sentence structure.`,
   ].join("\n");
 
   const completion = await openai.chat.completions.create({
@@ -662,9 +674,16 @@ const processRecordedVoiceMemo = async (
       destination: inputPath,
     });
 
+    const downloadedAudioBytes = fs.statSync(inputPath).size;
     const chunkPaths = await splitAudioForTranscription(inputPath, tempDir);
     const transcripts = await transcribeAudioChunks(openai, chunkPaths);
     const fullTranscript = transcripts.join("\n\n").trim();
+    logger.info("Recorded voice memo transcription finished", {
+      memoId,
+      downloadedAudioBytes,
+      chunkCount: chunkPaths.length,
+      transcriptTextLength: fullTranscript.length,
+    });
 
     if (!fullTranscript) {
       await memoRef.update({
@@ -672,6 +691,8 @@ const processRecordedVoiceMemo = async (
         aiSummaryStatus: "no_speech",
         aiSummaryModel: RECORDING_SUMMARY_MODEL,
         aiTranscriptionModel: RECORDING_TRANSCRIBE_MODEL,
+        audioFileBytes: downloadedAudioBytes,
+        transcriptTextLength: 0,
         transcriptChunkCount: chunkPaths.length,
         updatedAt: FieldValue.serverTimestamp(),
       });
@@ -689,6 +710,8 @@ const processRecordedVoiceMemo = async (
       aiSummaryStatus: summary === NO_RECOGNIZED_INFO ? "no_speech" : "completed",
       aiSummaryModel: RECORDING_SUMMARY_MODEL,
       aiTranscriptionModel: RECORDING_TRANSCRIBE_MODEL,
+      audioFileBytes: downloadedAudioBytes,
+      transcriptTextLength: fullTranscript.length,
       transcriptChunkCount: chunkPaths.length,
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -816,6 +839,93 @@ export const chatWithAI = onCall(
       logger.error("chatWithAI failed", error);
       throw new HttpsError("internal", "Failed to process AI request.");
     }
+  }
+);
+
+export const createRealtimeTranscriptionClientSecret = onCall(
+  {secrets: [openAiKeySecret], region: "australia-southeast1"},
+  async (request): Promise<RealtimeTranscriptionClientSecretResponse> => {
+    if (!request.auth?.uid) {
+      throw new HttpsError("unauthenticated", "You must be logged in to use voice input.");
+    }
+
+    pruneAndCheckRateLimit(`${request.auth.uid}:realtime-transcription`);
+
+    const apiKey = openAiKeySecret.value() || process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      logger.error("OPENAI_API_KEY is missing");
+      throw new HttpsError("internal", "Server is not configured for AI service.");
+    }
+
+    const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        expires_after: {
+          anchor: "created_at",
+          seconds: 120,
+        },
+        session: {
+          type: "transcription",
+          audio: {
+            input: {
+              format: {
+                type: "audio/pcm",
+                rate: REALTIME_TRANSCRIBE_SAMPLE_RATE,
+              },
+              transcription: {
+                model: REALTIME_TRANSCRIBE_MODEL,
+              },
+            },
+          },
+        },
+      }),
+    });
+
+    const rawBody = await response.text();
+    if (!response.ok) {
+      logger.error("Realtime client secret request failed", {
+        status: response.status,
+        body: rawBody,
+      });
+      throw new HttpsError("internal", "Failed to start realtime voice input.");
+    }
+
+    const parsed = JSON.parse(rawBody) as Record<string, unknown>;
+    const nestedClientSecret = parsed.client_secret as Record<string, unknown> | undefined;
+    const session = parsed.session as Record<string, unknown> | undefined;
+    const sessionClientSecret = session?.client_secret as Record<string, unknown> | undefined;
+    const clientSecret =
+      typeof parsed.value === "string" ?
+        parsed.value :
+        typeof nestedClientSecret?.value === "string" ?
+          nestedClientSecret.value :
+          typeof sessionClientSecret?.value === "string" ?
+            sessionClientSecret.value :
+            "";
+    const expiresAt =
+      typeof parsed.expires_at === "number" ?
+        parsed.expires_at :
+        typeof nestedClientSecret?.expires_at === "number" ?
+          nestedClientSecret.expires_at :
+          typeof sessionClientSecret?.expires_at === "number" ?
+            sessionClientSecret.expires_at :
+            0;
+
+    if (!clientSecret) {
+      logger.error("Realtime client secret response did not include a token", parsed);
+      throw new HttpsError("internal", "Failed to start realtime voice input.");
+    }
+
+    return {
+      clientSecret,
+      expiresAt,
+      model: REALTIME_TRANSCRIBE_MODEL,
+      sampleRate: REALTIME_TRANSCRIBE_SAMPLE_RATE,
+    };
   }
 );
 
