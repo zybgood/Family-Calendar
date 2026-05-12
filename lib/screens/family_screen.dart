@@ -866,7 +866,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Family Group Chat',
+                        'Group Chat',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -913,7 +913,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
                 Row(
                   children: [
                     const Text(
-                      'Existing Family',
+                      'Existing Group',
                       style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
@@ -968,7 +968,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Failed to load family members',
+                      'Failed to load group members',
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w700,
@@ -997,7 +997,7 @@ class _FamilyScreenState extends State<FamilyScreen> {
                     borderRadius: BorderRadius.circular(24),
                   ),
                   child: const Text(
-                    'No family members found.',
+                    'No group members found.',
                     style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,

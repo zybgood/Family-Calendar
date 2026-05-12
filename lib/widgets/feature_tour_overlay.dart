@@ -273,16 +273,15 @@ class _TourBubble extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
         decoration: BoxDecoration(
-          color: const Color(0xFFF8FAFC),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-          boxShadow: const [
-            BoxShadow(
-              color: Color(0x1A0F172A),
-              blurRadius: 24,
-              offset: Offset(0, 10),
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          border: Border(
+            bottom: BorderSide(
+              color: const Color(0xFFE2B736),
+              width: 1.5,
             ),
-          ],
+          ),
+          boxShadow: const [],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
