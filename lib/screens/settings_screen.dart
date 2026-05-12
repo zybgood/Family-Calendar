@@ -13,6 +13,7 @@ import '../themes/app_theme.dart';
 import '../widgets/app_header.dart';
 import '../widgets/bottom_navigation_bar.dart';
 import 'login_screen.dart';
+import 'subscription_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({Key? key}) : super(key: key);
@@ -623,7 +624,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   indent: 56,
                   endIndent: 20,
                 ),
-                _buildSettingItem('Family Members', Icons.people),
+                _buildSettingItem(
+                  'Subscription',
+                  Icons.people,
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => SubscriptionScreen(),
+                      ),
+                    );
+                  },
+                ),
               ],
             ),
           ),
@@ -673,39 +684,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _buildSettingItem(String title, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: SettingsScreen.accentColor.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(48),
-            ),
-            child: Center(
-              child: Icon(icon, size: 16, color: SettingsScreen.accentColor),
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: SettingsScreen.primaryColor,
+  Widget _buildSettingItem(String title, IconData icon, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        child: Row(
+          children: [
+            Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: SettingsScreen.accentColor.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(48),
+              ),
+              child: Center(
+                child: Icon(icon, size: 16, color: SettingsScreen.accentColor),
               ),
             ),
-          ),
-          const Icon(
-            Icons.arrow_forward_ios,
-            size: 12,
-            color: Color(0xFF64748B),
-          ),
-        ],
+            const SizedBox(width: 16),
+            Expanded(
+              child: Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: SettingsScreen.primaryColor,
+                ),
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios,
+              size: 12,
+              color: Color(0xFF64748B),
+            ),
+          ],
+        ),
       ),
     );
   }

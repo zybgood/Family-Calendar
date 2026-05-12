@@ -245,7 +245,7 @@ class _SelectFamilyScreenState extends State<SelectFamilyScreen> {
                       top: 0,
                       left: 0,
                       right: 0,
-                      child: AppHeader(title: 'Select Family', useBlur: false),
+                      child: AppHeader(title: 'Select Group', useBlur: false),
                     ),
                     Positioned(
                       left: 24,
@@ -295,7 +295,7 @@ class _SelectFamilyScreenState extends State<SelectFamilyScreen> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Failed to load families\n${snapshot.error}',
+                  'Failed to load groups\n${snapshot.error}',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 14,
@@ -345,7 +345,7 @@ class _SelectFamilyScreenState extends State<SelectFamilyScreen> {
                 ),
                 SizedBox(height: 12),
                 Text(
-                  'No family found',
+                  'No group found',
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w800,
@@ -354,7 +354,7 @@ class _SelectFamilyScreenState extends State<SelectFamilyScreen> {
                 ),
                 SizedBox(height: 8),
                 Text(
-                  'Create a new family or join one via invitation link',
+                  'Create a new group or join one via invitation link',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
@@ -437,7 +437,7 @@ class _SelectFamilyScreenState extends State<SelectFamilyScreen> {
                 Icon(Icons.add, color: Colors.black87, size: 18),
                 SizedBox(width: 8),
                 Text(
-                  'Create New Family',
+                  'Create New Group',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -532,7 +532,7 @@ class _FamilyGroupCard extends StatelessWidget {
             Text(group.name, style: AppTheme.familyNameStyle),
             const SizedBox(height: 4),
             Text(
-              '${group.memberCount} family members',
+              '${group.memberCount} group members',
               style: AppTheme.familyMemberCountStyle,
             ),
             const SizedBox(height: 16),
