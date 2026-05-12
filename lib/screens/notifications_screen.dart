@@ -46,14 +46,28 @@ class NotificationsScreen extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
       decoration: const BoxDecoration(
-        color: AppTheme.headerBackground,
-        boxShadow: [AppTheme.headerShadow],
+        color: Color(0xFFF8F7F6),
       ),
       child: Row(
         children: [
-          AppTheme.backButton(
-            context,
-            onPressed: () => Navigator.of(context).pop(),
+          Material(
+            color: const Color(0xFFF3EEE0),
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => Navigator.of(context).pop(),
+              child: const SizedBox(
+                width: 40,
+                height: 40,
+                child: Center(
+                  child: Icon(
+                    Icons.arrow_back_ios_new,
+                    size: 18,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+            ),
           ),
           const SizedBox(width: 12),
           const Expanded(
@@ -63,7 +77,25 @@ class NotificationsScreen extends StatelessWidget {
               style: AppTheme.headlineStyle,
             ),
           ),
-          const SizedBox(width: 48),
+          Material(
+            color: const Color(0xFFF1F5F9),
+            shape: const CircleBorder(),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () {},
+              child: const SizedBox(
+                width: 40,
+                height: 40,
+                child: Center(
+                  child: Icon(
+                    Icons.settings,
+                    size: 20,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -110,12 +142,18 @@ class NotificationsScreen extends StatelessWidget {
           return const Center(child: Text('No notifications yet.'));
         }
 
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          itemCount: docs.length,
-          itemBuilder: (context, index) {
-            return _buildNotificationCard(context, docs[index]);
-          },
+        final sections = _groupNotificationsByDate(docs);
+
+        return ListView(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+          children: [
+            for (final section in sections) ...[
+              _buildSectionHeader(section.label),
+              const SizedBox(height: 16),
+              ...section.docs.map((doc) => _buildNotificationCard(context, doc)),
+              const SizedBox(height: 24),
+            ],
+          ],
         );
       },
     );
@@ -144,81 +182,77 @@ class NotificationsScreen extends StatelessWidget {
     final isFamilyInvitation = type == 'family_invitation' && status == 'pending';
     final isInvitation = isTaskInvitation || isFamilyInvitation;
 
+    final displayText = message.isNotEmpty
+        ? message
+        : isTaskInvitation
+            ? '${senderName.isEmpty ? 'Someone' : senderName} wants to join the ${familyName.isEmpty ? 'family' : familyName} family group.'
+            : isFamilyInvitation
+                ? '${senderName.isEmpty ? 'Someone' : senderName} wants to join the ${familyName.isEmpty ? 'family' : familyName} family group.'
+                : '';
+
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(24),
         onTap: () async {
           if (!isRead) {
             await TaskInvitationService.markAsRead(doc.id);
           }
         },
         child: Container(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(17),
           decoration: BoxDecoration(
-            color: isRead ? Colors.white : const Color(0xFFFFFBEB),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(
-              color: isRead
-                  ? const Color(0xFFF1F5F9)
-                  : const Color(0xFFFDE68A),
-            ),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: const Color(0xFFF1F5F9)),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x0D000000),
+                blurRadius: 20,
+                spreadRadius: -2,
+                offset: Offset(0, 4),
+              ),
             ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  _iconForType(type),
-                  const SizedBox(width: 12),
+                  if (isInvitation)
+                    _buildInvitationAvatar(type)
+                  else
+                    _buildNotificationIcon(type),
+                  const SizedBox(width: 16),
                   Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        color: _primaryColor,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            color: _primaryColor,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          displayText,
+                          style: const TextStyle(
+                            color: _mutedColor,
+                            fontSize: 12,
+                            height: 1.4,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  if (!isRead)
-                    Container(
-                      width: 9,
-                      height: 9,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFEF4444),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
                 ],
               ),
-              const SizedBox(height: 10),
-              if (isInvitation) ...[
-                Text(
-                  isTaskInvitation
-                      ? 'Task name：${eventTitle.isEmpty ? 'Task' : eventTitle}'
-                      : 'Family name：${familyName.isEmpty ? 'Family' : familyName}',
-                  style: const TextStyle(
-                    color: _primaryColor,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Inviter：${senderName.isEmpty ? 'Member' : senderName}',
-                  style: const TextStyle(color: _mutedColor, fontSize: 13),
-                ),
-              ] else
-                Text(
-                  message,
-                  style: const TextStyle(color: _mutedColor, fontSize: 14),
-                ),
               if (createdAt != null) ...[
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 Text(
                   DateFormat('MMM d, HH:mm').format(createdAt),
                   style: const TextStyle(
@@ -228,46 +262,74 @@ class NotificationsScreen extends StatelessWidget {
                 ),
               ],
               if (isInvitation) ...[
-                const SizedBox(height: 14),
+                const SizedBox(height: 16),
                 Row(
                   children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => isTaskInvitation
-                            ? _respondTask(
-                                context,
-                                notificationId: doc.id,
-                                eventId: eventId,
-                                accepted: false,
-                              )
-                            : _respondFamily(
-                                context,
-                                notificationId: doc.id,
-                                accepted: false,
+                    SizedBox(
+                      width: 91,
+                      height: 40,
+                      child: Material(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(24),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(24),
+                          onTap: () => isTaskInvitation
+                              ? _respondTask(
+                                  context,
+                                  notificationId: doc.id,
+                                  eventId: eventId,
+                                  accepted: false,
+                                )
+                              : _respondFamily(
+                                  context,
+                                  notificationId: doc.id,
+                                  accepted: false,
+                                ),
+                          child: const Center(
+                            child: Text(
+                              'Refuse',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.black,
                               ),
-                        child: const Text('Refuse'),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _accentColor,
-                          foregroundColor: Colors.white,
-                        ),
-                        onPressed: () => isTaskInvitation
-                            ? _respondTask(
-                                context,
-                                notificationId: doc.id,
-                                eventId: eventId,
-                                accepted: true,
-                              )
-                            : _respondFamily(
-                                context,
-                                notificationId: doc.id,
-                                accepted: true,
+                    SizedBox(
+                      width: 91,
+                      height: 40,
+                      child: Material(
+                        color: _accentColor,
+                        borderRadius: BorderRadius.circular(24),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(24),
+                          onTap: () => isTaskInvitation
+                              ? _respondTask(
+                                  context,
+                                  notificationId: doc.id,
+                                  eventId: eventId,
+                                  accepted: true,
+                                )
+                              : _respondFamily(
+                                  context,
+                                  notificationId: doc.id,
+                                  accepted: true,
+                                ),
+                          child: const Center(
+                            child: Text(
+                              'Accept',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
                               ),
-                        child: const Text('Accept'),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -278,6 +340,159 @@ class NotificationsScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _buildNotificationIcon(String type) {
+    IconData icon;
+    Color background;
+
+    switch (type) {
+      case 'task_invitation':
+      case 'task_invitation_sent':
+        icon = Icons.assignment;
+        background = const Color(0xFFDBA21F);
+        break;
+      case 'task_invitation_accepted':
+        icon = Icons.check_circle;
+        background = const Color(0xFF16A34A);
+        break;
+      case 'task_invitation_declined':
+        icon = Icons.cancel;
+        background = const Color(0xFFDC2626);
+        break;
+      case 'family_invitation':
+      case 'family_invitation_accepted':
+        icon = Icons.group_add;
+        background = const Color(0xFF6366F1);
+        break;
+      default:
+        icon = Icons.notifications;
+        background = const Color(0xFF64748B);
+    }
+
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(28),
+      ),
+      child: Center(
+        child: Icon(
+          icon,
+          size: 24,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInvitationAvatar(String type) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          width: 56,
+          height: 56,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE2B736),
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: const Center(
+            child: Icon(
+              Icons.person,
+              size: 28,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        Positioned(
+          right: -4,
+          bottom: -4,
+          child: Container(
+            width: 20,
+            height: 20,
+            decoration: BoxDecoration(
+              color: const Color(0xFFE2B736),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white, width: 2),
+            ),
+            child: const Center(
+              child: Icon(
+                Icons.person_add,
+                size: 10,
+                color: Colors.white,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSectionHeader(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: Text(
+        label.toUpperCase(),
+        style: const TextStyle(
+          color: Color(0xFF94A3B8),
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 1.4,
+        ),
+      ),
+    );
+  }
+
+  List<_NotificationSection> _groupNotificationsByDate(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+  ) {
+    final sections = <String, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+
+    for (final doc in docs) {
+      final data = doc.data();
+      final createdAt = data['createdAt'] is Timestamp
+          ? (data['createdAt'] as Timestamp).toDate()
+          : null;
+      final label = createdAt == null ? 'Unknown' : _sectionLabelForDate(createdAt);
+      sections.putIfAbsent(label, () => []).add(doc);
+    }
+
+    return sections.entries
+        .map((entry) => _NotificationSection(label: entry.key, docs: entry.value))
+        .toList();
+  }
+
+  String _sectionLabelForDate(DateTime date) {
+    final now = DateTime.now();
+    final localDate = DateTime(date.year, date.month, date.day);
+    final today = DateTime(now.year, now.month, now.day);
+    if (localDate == today) {
+      return 'Today';
+    }
+    final yesterday = today.subtract(const Duration(days: 1));
+    if (localDate == yesterday) {
+      return 'Yesterday';
+    }
+    final suffix = _daySuffix(localDate.day);
+    return '${DateFormat('MMM').format(localDate)} ${localDate.day}$suffix';
+  }
+
+  String _daySuffix(int day) {
+    if (day >= 11 && day <= 13) {
+      return 'th';
+    }
+    switch (day % 10) {
+      case 1:
+        return 'st';
+      case 2:
+        return 'nd';
+      case 3:
+        return 'rd';
+      default:
+        return 'th';
+    }
   }
 
   Future<void> _respondTask(
@@ -332,6 +547,7 @@ class NotificationsScreen extends StatelessWidget {
       );
     }
   }
+
   Widget _iconForType(String type) {
     IconData icon;
     Color background;
@@ -379,4 +595,11 @@ class NotificationsScreen extends StatelessWidget {
       child: Icon(icon, size: 22, color: Colors.white),
     );
   }
+}
+
+class _NotificationSection {
+  _NotificationSection({required this.label, required this.docs});
+
+  final String label;
+  final List<QueryDocumentSnapshot<Map<String, dynamic>>> docs;
 }

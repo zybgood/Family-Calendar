@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../navigation/app_bottom_nav.dart';
 import '../services/onboarding_service.dart';
@@ -82,6 +83,7 @@ class _MemoScreenState extends State<MemoScreen>
   void dispose() {
     _recordingTimer?.cancel();
     _recordingAmplitudeSub?.cancel();
+    unawaited(WakelockPlus.disable());
     _voiceUi.dispose();
     _voiceBarsController.dispose();
     _audioRecorder.dispose();
@@ -283,6 +285,7 @@ class _MemoScreenState extends State<MemoScreen>
     _recordingTimer = null;
     _recordingAmplitudeSub?.cancel();
     _recordingAmplitudeSub = null;
+    unawaited(WakelockPlus.disable());
     _stopVoiceBars();
   }
 
@@ -322,14 +325,13 @@ class _MemoScreenState extends State<MemoScreen>
       final path =
           '${directory.path}${Platform.pathSeparator}voice_memo_$timestamp.m4a';
 
+      await WakelockPlus.enable();
       await _audioRecorder.start(
         const RecordConfig(
           encoder: AudioEncoder.aacLc,
           bitRate: 64000,
           sampleRate: 44100,
           numChannels: 1,
-          noiseSuppress: true,
-          echoCancel: true,
         ),
         path: path,
       );
@@ -418,13 +420,18 @@ class _MemoScreenState extends State<MemoScreen>
     }
 
     final path = audioPath ?? _activeRecordingPath;
-    if (path == null || path.isEmpty || !File(path).existsSync()) {
+    final audioFile = path == null || path.isEmpty ? null : File(path);
+    if (audioFile == null || !audioFile.existsSync()) {
       _resetVoiceOverlay();
       _showMessage('No recording file was created. Please try again.');
       return;
     }
 
-    await _createVoiceMemoFromRecording(path, duration: duration);
+    await _createVoiceMemoFromRecording(
+      audioFile.path,
+      duration: duration,
+      audioFileBytes: audioFile.lengthSync(),
+    );
   }
 
   Future<void> _openNewMemo() async {
@@ -444,6 +451,7 @@ class _MemoScreenState extends State<MemoScreen>
   Future<void> _createVoiceMemoFromRecording(
     String audioPath, {
     required Duration duration,
+    required int audioFileBytes,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
 
@@ -497,6 +505,7 @@ class _MemoScreenState extends State<MemoScreen>
         'audioUrl': audioUrl,
         'audioStoragePath': storagePath,
         'localAudioPath': audioPath,
+        'localAudioFileBytes': audioFileBytes,
         'audioDurationMillis': duration.inMilliseconds,
         'aiSummaryStatus': uploadFailed ? 'failed' : 'pending',
         'createdAtLocalMillis': createdAt.millisecondsSinceEpoch,
