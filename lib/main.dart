@@ -97,6 +97,20 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Family Memo',
       debugShowCheckedModeBanner: false,
+      //-----------------------------------------------
+      builder: (context, child) {
+        return GestureDetector(
+          behavior: HitTestBehavior.translucent,
+          onTap: () {
+            final currentFocus = FocusManager.instance.primaryFocus;
+            if (currentFocus != null && currentFocus.hasFocus) {
+              currentFocus.unfocus();
+            }
+          },
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
+      //-------------------------------Keyboard defocus global logic
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: AppTheme.accent),
         scaffoldBackgroundColor: AppTheme.pageBackground,
