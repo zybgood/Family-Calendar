@@ -288,16 +288,12 @@ class _AddTaskScreenState extends State<AddTaskScreen> {
   }
 
   List<String> _buildParticipantIds(String currentUid) {
-    final ids = <String>{};
+    final ids = <String>{currentUid};
 
     for (final member in _selectedParticipants) {
       if (member.id.trim().isNotEmpty) {
         ids.add(member.id.trim());
       }
-    }
-
-    if (ids.isEmpty) {
-      ids.add(currentUid);
     }
 
     return ids.toList();
