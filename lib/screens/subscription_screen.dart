@@ -44,7 +44,7 @@ class SubscriptionScreen extends StatelessWidget {
                             background: const Color(0xFFDFD5F4),
                             icon: Icons.people,
                             iconColor: const Color(0xFF8F6AE8),
-                            title: 'Unlimited Family Members',
+                            title: 'Unlimited Group Members',
                             subtitle: 'Invite everyone from kids to grandparents.',
                           ),
                           const SizedBox(height: 16),

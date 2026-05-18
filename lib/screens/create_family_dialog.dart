@@ -24,7 +24,7 @@ class _CreateFamilyDialogState extends State<CreateFamilyDialog> {
 
     if (familyName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a family name')),
+        const SnackBar(content: Text('Please enter a group name')),
       );
       return;
     }
@@ -77,15 +77,15 @@ class _CreateFamilyDialogState extends State<CreateFamilyDialog> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Family "$familyName" created successfully')),
+        SnackBar(content: Text('Group "$familyName" created successfully')),
       );
       Navigator.of(context).pop();
     } catch (e) {
       if (!mounted) return;
-      print('Create family error: $e');
+      print('Create group error: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to create family: ${e.toString()}'),
+          content: Text('Failed to create group: ${e.toString()}'),
           duration: const Duration(seconds: 3),
         ),
       );
@@ -153,7 +153,7 @@ class _CreateFamilyDialogState extends State<CreateFamilyDialog> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               const Text(
-                                'Create a family',
+                                'Create a group',
                                 style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w900,
@@ -183,7 +183,7 @@ class _CreateFamilyDialogState extends State<CreateFamilyDialog> {
                           ),
                           const SizedBox(height: 18),
                           const Text(
-                            'Family name',
+                            'Group name',
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -205,7 +205,7 @@ class _CreateFamilyDialogState extends State<CreateFamilyDialog> {
                               },
                               decoration: const InputDecoration(
                                 border: InputBorder.none,
-                                hintText: 'e.g. Johnson Family',
+                                hintText: 'e.g. Johnson Group',
                                 hintStyle: TextStyle(
                                   color: Color(0xFF94A3B8),
                                   fontWeight: FontWeight.w500,

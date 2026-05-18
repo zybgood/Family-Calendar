@@ -222,7 +222,7 @@ class _SelectMembersScreenState extends State<SelectMembersScreen> {
                                 _buildSearchField(),
                                 const SizedBox(height: 18),
                                 const Text(
-                                  'FAMILY CIRCLE',
+                                  'GROUP CIRCLE',
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w800,
@@ -309,7 +309,7 @@ class _SelectMembersScreenState extends State<SelectMembersScreen> {
               onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                 border: InputBorder.none,
-                hintText: 'Find a family member...',
+                hintText: 'Find a group member...',
                 hintStyle: TextStyle(
                   color: Color(0xFFB08F4C),
                   fontWeight: FontWeight.w600,
