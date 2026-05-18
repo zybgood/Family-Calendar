@@ -213,7 +213,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         FeatureTourStep(
           id: OnboardingService.stepCalendarAddFab,
           targetKey: _calendarFabKey,
-          title: 'Add a family event',
+          title: 'Add a group event',
           description:
               'Tap this button any time to create a new event on your calendar.',
           preferredPlacement: TourBubblePlacement.above,

@@ -417,7 +417,7 @@ class _FamilySelectionScreenState extends State<FamilySelectionScreen> {
           const Expanded(
             child: Center(
               child: Text(
-                'Select Family',
+                'Select Group',
                 style: TextStyle(
                   fontSize: 20,
                   fontWeight: FontWeight.w800,
@@ -645,7 +645,7 @@ class _FamilyGroupCard extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              '${group.memberCount} family members',
+              '${group.memberCount} group members',
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
